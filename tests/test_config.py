@@ -4,7 +4,7 @@ from app.config import Config
 def test_default_config():
     """Prueft die Standardwerte der Konfiguration."""
     assert Config.POLL_INTERVAL == 300
-    assert Config.WATCH_LABEL == "com.watchtower.enable"
+    assert Config.WATCH_LABEL == "com.lighthouse.enable"
     assert Config.LOG_LEVEL == "INFO"
 
 def test_config_env_override(monkeypatch):
