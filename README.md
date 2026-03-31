@@ -17,7 +17,7 @@ Ein schlanker Docker-Container-Update-Dienst in Python, der laufende Instanzen a
 Sie koennen das Image direkt aus der GitHub Container Registry ziehen:
 
 ```bash
-docker pull ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
+docker pull ghcr.io/scruzzimattia-blip/lighthouse:latest
 ```
 
 Um Lighthouse als Container zu starten, muss der Docker-Socket gemountet werden:
@@ -26,7 +26,7 @@ Um Lighthouse als Container zu starten, muss der Docker-Socket gemountet werden:
 docker run -d \
   --name lighthouse \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
+  ghcr.io/scruzzimattia-blip/lighthouse:latest
 ```
 
 ### Betrieb mit Docker Compose
@@ -37,7 +37,7 @@ Sie koennen Lighthouse auch ganz einfach mit Docker Compose starten:
 # docker-compose.yml
 services:
   lighthouse:
-    image: ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
+    image: ghcr.io/scruzzimattia-blip/lighthouse:latest
     container_name: lighthouse
     restart: always
     volumes:
