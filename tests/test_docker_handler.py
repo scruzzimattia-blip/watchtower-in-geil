@@ -81,3 +81,21 @@ def test_check_and_update_dry_run(mock_docker_client):
         # Notifier sollte eine Simulations-Nachricht senden.
         handler.notifier.send.assert_called_once()
         assert "Simulation" in handler.notifier.send.call_args[0][0]
+
+def test_wait_for_health_no_healthcheck(mock_docker_client):
+    """Prueft wait_for_health, wenn kein Healthcheck definiert ist."""
+    container = MagicMock()
+    container.status = 'running'
+    container.attrs = {'State': {}} # Kein 'Health'
+    
+    handler = DockerHandler()
+    assert handler.wait_for_health(container) is True
+
+def test_wait_for_health_unhealthy(mock_docker_client):
+    """Prueft wait_for_health, wenn der Container ungesund ist."""
+    container = MagicMock()
+    container.status = 'running'
+    container.attrs = {'State': {'Health': {'Status': 'unhealthy'}}}
+    
+    handler = DockerHandler()
+    assert handler.wait_for_health(container) is False

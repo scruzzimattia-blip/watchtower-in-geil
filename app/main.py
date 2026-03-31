@@ -2,6 +2,7 @@ import time
 import logging
 import sys
 import signal
+from concurrent.futures import ThreadPoolExecutor
 from app.config import Config
 from app.docker_handler import DockerHandler
 
@@ -60,11 +61,14 @@ def main():
             
             # Liste der zu ueberwachenden Container abrufen.
             containers = handler.get_watchable_containers()
-            for container in containers:
-                if not RUNNING:
-                    break
-                logger.info(f"Pruefe Container: {container.name} (Image: {container.image.tags})")
-                handler.check_and_update(container)
+            
+            # Parallele Ausfuehrung der Pruefungen mit einem ThreadPoolExecutor.
+            with ThreadPoolExecutor(max_workers=Config.MAX_WORKERS) as executor:
+                for container in containers:
+                    if not RUNNING:
+                        break
+                    logger.info(f"Pruefung fuer {container.name} eingereiht.")
+                    executor.submit(handler.check_and_update, container)
             
             if RUNNING:
                 logger.info(f"Warten auf den naechsten Durchlauf in {Config.POLL_INTERVAL}s.")
