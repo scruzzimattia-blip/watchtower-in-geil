@@ -31,7 +31,27 @@ Das Tool kann ueber Umgebungsvariablen konfiguriert werden:
 - `POLL_INTERVAL`: Zeitabstand zwischen den Pruefungen in Sekunden (Standard: 300).
 - `WATCH_LABEL`: Label, nach dem gesucht werden soll (Standard: `com.watchtower.enable`).
 
-### Container fuer die Ueberwachung markieren
+### Betrieb mit Docker Compose
+
+Sie koennen den Watchtower-Klon auch ganz einfach mit Docker Compose starten:
+
+```yaml
+# docker-compose.yml
+services:
+  watchtower-in-geil:
+    image: ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
+    container_name: watchtower-in-geil
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - POLL_INTERVAL=300
+```
+
+Starten Sie den Dienst anschliessend mit:
+```bash
+docker compose up -d
+```
 Damit ein Container aktualisiert wird, muss er mit dem entsprechenden Label gestartet werden:
 
 ```bash
