@@ -49,7 +49,9 @@ def test_check_and_update_no_change(mock_docker_client):
     handler = DockerHandler()
     # Mocking recreate_container, um sicherzustellen, dass es NICHT aufgerufen wird.
     handler.recreate_container = MagicMock()
+    handler.cleanup_old_image = MagicMock()
     
     handler.check_and_update(container)
     
     handler.recreate_container.assert_not_called()
+    handler.cleanup_old_image.assert_not_called()
