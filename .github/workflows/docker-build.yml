@@ -38,11 +38,11 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            # 'latest' Tag nur fuer den main Branch.
+            # 'latest' Tag fuer den main Branch.
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             
-            # 'develop' Tag nur fuer den develop Branch.
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            # Automatische Tags fuer Branches (z.B. develop).
+            type=ref,event=branch
             
             # Die Version aus der VERSION-Datei.
             type=raw,value=${{ steps.version.outputs.version }}
