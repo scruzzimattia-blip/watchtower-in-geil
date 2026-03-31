@@ -1,6 +1,6 @@
 services:
   lighthouse:
-    image: ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
+    image: ghcr.io/scruzzimattia-blip/lighthouse:latest
     container_name: lighthouse
     restart: always
     volumes:
