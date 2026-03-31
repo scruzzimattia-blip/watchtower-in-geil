@@ -52,46 +52,97 @@ class DockerHandler:
         try:
             logger.info(f"Pulle neustes Image fuer {image_name}...")
             # Pulle das Image, um zu sehen, ob es ein Update gibt.
+            old_image_id = container.image.id
             new_image = self.client.images.pull(image_name)
             
             # Vergleiche die IDs des aktuellen Images und des neu gepullten Images.
-            if new_image.id != container.image.id:
+            if new_image.id != old_image_id:
                 logger.info(f"Update verfuegbar fuer {container.name}! Starte neu...")
                 self.recreate_container(container, image_name)
+                
+                # Altes Image entfernen, falls es keine Tags mehr hat (dangling).
+                self.cleanup_old_image(old_image_id)
             else:
                 logger.info(f"Container {container.name} ist bereits auf dem neusten Stand.")
                 
         except Exception as e:
             logger.error(f"Fehler beim Update von {container.name}: {e}")
 
+    def cleanup_old_image(self, image_id):
+        """
+        Entfernt ein altes Image, falls es nicht mehr verwendet wird (dangling).
+        """
+        try:
+            # Wir versuchen das Image zu entfernen. Falls es noch von anderen
+            # Containern genutzt wird, wird Docker einen Fehler werfen, den wir abfangen.
+            self.client.images.remove(image=image_id, noprune=False)
+            logger.info(f"Altes Image {image_id[:12]} wurde erfolgreich bereinigt.")
+        except Exception:
+            # Ignorieren, falls das Image noch in Benutzung ist.
+            pass
+
     def recreate_container(self, container, image_name):
         """
         Stoppt, entfernt und startet den Container neu mit dem neuen Image.
-        Dabei werden wichtige Konfigurationen (Ports, Volumes, Envs) beibehalten.
+        Versucht so viele Konfigurationsparameter wie moeglich zu uebernehmen.
         """
         # Extrahiere Konfiguration des alten Containers.
-        config = container.attrs['Config']
-        host_config = container.attrs['HostConfig']
+        attrs = container.attrs
+        config = attrs['Config']
+        host_config = attrs['HostConfig']
         
-        # Stoppen und Entfernen.
+        # Vorbereitung der Parameter fuer den neuen Container.
+        # Wir versuchen, moeglichst viele Details zu erhalten.
+        run_kwargs = {
+            'image': image_name,
+            'name': container.name,
+            'detach': True,
+            'environment': config.get('Env', []),
+            'ports': host_config.get('PortBindings', {}),
+            'volumes': host_config.get('Binds', []),
+            'restart_policy': host_config.get('RestartPolicy', {"Name": "always"}),
+            'labels': config.get('Labels', {}),
+            'entrypoint': config.get('Entrypoint'),
+            'command': config.get('Cmd'),
+            'user': config.get('User'),
+            'working_dir': config.get('WorkingDir'),
+            'hostname': config.get('Hostname'),
+            'domainname': config.get('Domainname'),
+            'mac_address': config.get('MacAddress'),
+        }
+
+        # Netzwerke extrahieren.
+        networks = attrs.get('NetworkSettings', {}).get('Networks', {})
+        network_names = list(networks.keys())
+        
+        # Stoppen und Entfernen des alten Containers.
         logger.info(f"Stoppe Container {container.name}...")
-        container.stop()
-        logger.info(f"Entferne Container {container.name}...")
-        container.remove()
-        
-        # Neu erstellen mit derselben Konfiguration.
-        # Hinweis: Hier koennten noch mehr Parameter uebernommen werden (z.B. Netzwerke).
-        new_container = self.client.containers.run(
-            image=image_name,
-            name=container.name,
-            detach=True,
-            environment=config.get('Env', []),
-            ports=host_config.get('PortBindings', {}),
-            volumes=host_config.get('Binds', []),
-            restart_policy=host_config.get('RestartPolicy', {"Name": "always"}),
-            labels=config.get('Labels', {})
-        )
-        logger.info(f"Container {new_container.name} erfolgreich mit neuem Image gestartet.")
+        try:
+            container.stop(timeout=10)
+            logger.info(f"Entferne Container {container.name}...")
+            container.remove()
+        except Exception as e:
+            logger.error(f"Fehler beim Entfernen des Containers {container.name}: {e}")
+            return
+
+        # Neu erstellen.
+        try:
+            # Den neuen Container mit dem ersten Netzwerk starten.
+            if network_names:
+                run_kwargs['network'] = network_names[0]
+            
+            new_container = self.client.containers.run(**run_kwargs)
+            
+            # Weitere Netzwerke verbinden, falls vorhanden.
+            if len(network_names) > 1:
+                for net_name in network_names[1:]:
+                    network = self.client.networks.get(net_name)
+                    network.connect(new_container)
+            
+            logger.info(f"Container {new_container.name} erfolgreich mit neuem Image gestartet.")
+        except Exception as e:
+            logger.error(f"Kritischer Fehler beim Neustart von {container.name}: {e}")
+            logger.error("Der Container konnte nicht wiederhergestellt werden!")
 
     def close(self):
         """
