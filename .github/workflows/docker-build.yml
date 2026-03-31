@@ -1,10 +1,12 @@
 name: Docker Build & Push to GHCR
 
-# Ausfuehren bei jedem Push auf den main-Branch.
+# Ausfuehren bei jedem Push auf den main-Branch oder bei neuen Tags.
 on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
 
 # Berechtigungen fuer GitHub Packages (GHCR).
 permissions:
@@ -25,12 +27,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+            type=raw,value=latest,enable={{#if (eq github.ref 'refs/heads/main')}}true{{else}}false{{/if}}
+
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          # Image-Tag besteht aus Repo-Name und 'latest'.
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/watchtower-in-geil:latest
-            ghcr.io/${{ github.repository_owner }}/watchtower-in-geil:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
