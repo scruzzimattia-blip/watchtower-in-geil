@@ -8,8 +8,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Quellcode kopieren.
+# Quellcode und Version kopieren.
 COPY app/ app/
+COPY VERSION .
 
 # Umgebungsvariable fuer Python (Pufferung deaktivieren fuer Docker-Logs).
 ENV PYTHONUNBUFFERED=1

@@ -12,13 +12,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def get_version():
+    """Liest die Version aus der VERSION-Datei im Hauptverzeichnis."""
+    try:
+        with open("VERSION", "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "unbekannt"
+
 def main():
     """
     Der Haupteinstiegspunkt des Watchtower-Klons.
     Hier wird die Endlosschleife gestartet, die regelmaessig
     nach Updates sucht und diese ausfuehrt.
     """
-    logger.info("Watchtower-Klon gestartet. Druecke Strg+C zum Schliessen.")
+    version = get_version()
+    logger.info(f"Watchtower-Klon (v{version}) gestartet. Druecke Strg+C zum Schliessen.")
     logger.info(f"Abfrageintervall: {Config.POLL_INTERVAL} Sekunden.")
     
     # Docker-Handler initialisieren.
