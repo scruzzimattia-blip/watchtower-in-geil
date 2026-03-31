@@ -1,11 +1,10 @@
 name: Docker Build & Push to GHCR
 
-# Ausfuehren bei jedem Push auf den main-Branch, den develop-Branch oder bei neuen Tags.
+# Ausfuehren bei jedem Push auf den main-Branch oder bei neuen Tags.
 on:
   push:
     branches:
       - main
-      - develop
     tags:
       - 'v*'
 
@@ -38,11 +37,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            # 'latest' Tag fuer den main Branch.
+            # 'latest' Tag fuer den Haupt-Build.
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            
-            # Automatische Tags fuer Branches (z.B. develop).
-            type=ref,event=branch
             
             # Die Version aus der VERSION-Datei.
             type=raw,value=${{ steps.version.outputs.version }}
