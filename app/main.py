@@ -36,7 +36,7 @@ def main():
             containers = handler.get_watchable_containers()
             for container in containers:
                 logger.info(f"Pruefe Container: {container.name} (Image: {container.image.tags})")
-                # TODO: Phase 3 - Update-Pruefung und Neustart implementieren.
+                handler.check_and_update(container)
             
             logger.info(f"Warten auf den naechsten Durchlauf in {Config.POLL_INTERVAL}s.")
             time.sleep(Config.POLL_INTERVAL)
