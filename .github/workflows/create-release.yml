@@ -1,0 +1,36 @@
+name: Create GitHub Release
+
+# Ausfuehren bei jedem Push auf den main-Branch.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Read version file
+        id: version
+        run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release v${{ steps.version.outputs.version }}
+          body: |
+            Automatisches Release fuer Lighthouse v${{ steps.version.outputs.version }}.
+            
+            Aenderungen in diesem Release:
+            - Siehe Commit-Historie fuer Details.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
