@@ -55,3 +55,29 @@ def test_check_and_update_no_change(mock_docker_client):
     
     handler.recreate_container.assert_not_called()
     handler.cleanup_old_image.assert_not_called()
+
+def test_check_and_update_dry_run(mock_docker_client):
+    """Prueft den Dry-Run Modus: Logik sollte ausgefuehrt werden, aber kein Neustart."""
+    container = MagicMock()
+    container.name = "dry-run-container"
+    container.image.id = "sha256:old_id"
+    container.image.tags = ["nginx:latest"]
+    
+    new_image = MagicMock()
+    new_image.id = "sha256:new_id" # Unterschiedlich!
+    
+    mock_docker_client.images.pull.return_value = new_image
+    
+    # Dry Run aktivieren.
+    with patch('app.config.Config.DRY_RUN', True):
+        handler = DockerHandler()
+        handler.recreate_container = MagicMock()
+        handler.notifier.send = MagicMock()
+        
+        handler.check_and_update(container)
+        
+        # Recreate darf NICHT aufgerufen werden.
+        handler.recreate_container.assert_not_called()
+        # Notifier sollte eine Simulations-Nachricht senden.
+        handler.notifier.send.assert_called_once()
+        assert "Simulation" in handler.notifier.send.call_args[0][0]

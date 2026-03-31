@@ -1,6 +1,7 @@
 import docker
 import logging
 from app.config import Config
+from app.notifier import Notifier
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ class DockerHandler:
         try:
             # Initialisiert den Docker-Client mit den Standardeinstellungen (z.B. docker.sock).
             self.client = docker.from_env()
+            self.notifier = Notifier()
             logger.info("Verbindung zur Docker-API erfolgreich hergestellt.")
         except Exception as e:
             logger.error(f"Fehler bei der Verbindung zur Docker-API: {e}")
@@ -57,16 +59,26 @@ class DockerHandler:
             
             # Vergleiche die IDs des aktuellen Images und des neu gepullten Images.
             if new_image.id != old_image_id:
-                logger.info(f"Update verfuegbar fuer {container.name}! Starte neu...")
-                self.recreate_container(container, image_name)
+                msg = f"Update verfuegbar fuer {container.name} ({image_name})!"
+                logger.info(msg)
                 
-                # Altes Image entfernen, falls es keine Tags mehr hat (dangling).
-                self.cleanup_old_image(old_image_id)
+                if Config.DRY_RUN:
+                    logger.info(f"[DRY RUN] Neustart von {container.name} wird uebersprungen.")
+                    self.notifier.send(f"🔍 {msg} (Simulation)")
+                else:
+                    self.recreate_container(container, image_name)
+                    self.notifier.send(f"✅ {msg} (Erfolgreich aktualisiert)")
+                    # Altes Image entfernen, falls es keine Tags mehr hat (dangling).
+                    self.cleanup_old_image(old_image_id)
             else:
                 logger.info(f"Container {container.name} ist bereits auf dem neusten Stand.")
                 
         except Exception as e:
-            logger.error(f"Fehler beim Update von {container.name}: {e}")
+            error_msg = f"Fehler beim Update von {container.name}: {e}"
+            logger.error(error_msg)
+            if not Config.SKIP_PULL_ERROR:
+                raise
+            self.notifier.send(f"❌ {error_msg}")
 
     def cleanup_old_image(self, image_id):
         """

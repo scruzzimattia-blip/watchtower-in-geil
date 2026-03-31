@@ -18,3 +18,12 @@ class Config:
     
     # Log-Level (Standard: INFO).
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    
+    # URL fuer Benachrichtigungen (z.B. Discord/Slack Webhook).
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+    
+    # Falls True, werden keine Aenderungen an Containern vorgenommen.
+    DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
+    
+    # Falls True, wird bei einem Pull-Fehler der naechste Container geprueft.
+    SKIP_PULL_ERROR = os.getenv("SKIP_PULL_ERROR", "false").lower() == "true"
