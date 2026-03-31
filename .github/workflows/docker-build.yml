@@ -1,0 +1,36 @@
+name: Docker Build & Push to GHCR
+
+# Ausfuehren bei jedem Push auf den main-Branch.
+on:
+  push:
+    branches:
+      - main
+
+# Berechtigungen fuer GitHub Packages (GHCR).
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # Image-Tag besteht aus Repo-Name und 'latest'.
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/watchtower-in-geil:latest
+            ghcr.io/${{ github.repository_owner }}/watchtower-in-geil:${{ github.sha }}
