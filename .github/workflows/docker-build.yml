@@ -1,10 +1,11 @@
 name: Docker Build & Push to GHCR
 
-# Ausfuehren bei jedem Push auf den main-Branch oder bei neuen Tags.
+# Ausfuehren bei jedem Push auf den main-Branch, den develop-Branch oder bei neuen Tags.
 on:
   push:
     branches:
       - main
+      - develop
     tags:
       - 'v*'
 
