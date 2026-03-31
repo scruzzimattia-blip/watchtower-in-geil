@@ -11,13 +11,19 @@ Ein schlanker Watchtower-Klon in Python, der Docker-Container automatisch auf ne
 
 ## Installation & Betrieb (Docker)
 
+Sie koennen das Image direkt aus der GitHub Container Registry ziehen:
+
+```bash
+docker pull ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
+```
+
 Um den Watchtower-Klon als Container zu starten, muss der Docker-Socket gemountet werden:
 
 ```bash
 docker run -d \
   --name watchtower-in-geil \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/${{ github.repository_owner }}/watchtower-in-geil:latest
+  ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
 ```
 
 ### Konfiguration
