@@ -14,7 +14,7 @@ class Config:
     
     # Label, nach dem gesucht werden soll, um Container zu ueberwachen.
     # Falls leer, werden alle Container geprueft.
-    WATCH_LABEL = os.getenv("WATCH_LABEL", "com.watchtower.enable")
+    WATCH_LABEL = os.getenv("WATCH_LABEL", "com.lighthouse.enable")
     
     # Log-Level (Standard: INFO).
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

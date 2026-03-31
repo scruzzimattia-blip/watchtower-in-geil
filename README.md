@@ -1,11 +1,14 @@
-# Watchtower-in-geil
+# Lighthouse
 
-Ein schlanker Watchtower-Klon in Python, der Docker-Container automatisch auf neue Image-Versionen prueft und diese aktualisiert.
+Ein schlanker Docker-Container-Update-Dienst in Python, der laufende Instanzen automatisch auf neue Image-Versionen prueft und diese aktualisiert.
 
 ## Funktionen
 - Nutzt die Docker-Socket-Schnittstelle.
-- Automatische Erkennung von zu ueberwachenden Containern via Labels.
-- Pullt die neusten Images und startet Container bei Bedarf neu.
+- Parallele Pruefung von Containern fuer maximale Geschwindigkeit.
+- Automatische Erkennung via Labels (`com.lighthouse.enable`).
+- Healthcheck-Validierung nach jedem Update.
+- Benachrichtigungen via Discord/Slack Webhooks.
+- Dry-Run Modus fuer Simulationen.
 - Behaelt wichtige Konfigurationen wie Umgebungsvariablen, Ports und Volumes bei.
 - Vollstaendige CI/CD-Pipeline via GitHub Actions (GHCR).
 
@@ -17,47 +20,53 @@ Sie koennen das Image direkt aus der GitHub Container Registry ziehen:
 docker pull ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
 ```
 
-Um den Watchtower-Klon als Container zu starten, muss der Docker-Socket gemountet werden:
+Um Lighthouse als Container zu starten, muss der Docker-Socket gemountet werden:
 
 ```bash
 docker run -d \
-  --name watchtower-in-geil \
+  --name lighthouse \
   -v /var/run/docker.sock:/var/run/docker.sock \
   ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
 ```
 
-### Konfiguration
-Das Tool kann ueber Umgebungsvariablen konfiguriert werden:
-- `POLL_INTERVAL`: Zeitabstand zwischen den Pruefungen in Sekunden (Standard: 300).
-- `WATCH_LABEL`: Label, nach dem gesucht werden soll (Standard: `com.watchtower.enable`).
-
 ### Betrieb mit Docker Compose
 
-Sie koennen den Watchtower-Klon auch ganz einfach mit Docker Compose starten:
+Sie koennen Lighthouse auch ganz einfach mit Docker Compose starten:
 
 ```yaml
 # docker-compose.yml
 services:
-  watchtower-in-geil:
+  lighthouse:
     image: ghcr.io/scruzzimattia-blip/watchtower-in-geil:latest
-    container_name: watchtower-in-geil
+    container_name: lighthouse
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - POLL_INTERVAL=300
+      - WATCH_LABEL=com.lighthouse.enable
 ```
 
 Starten Sie den Dienst anschliessend mit:
 ```bash
 docker compose up -d
 ```
+
+### Konfiguration
+Das Tool kann ueber Umgebungsvariablen konfiguriert werden:
+- `POLL_INTERVAL`: Zeitabstand zwischen den Pruefungen in Sekunden (Standard: 300).
+- `WATCH_LABEL`: Label, nach dem gesucht werden soll (Standard: `com.lighthouse.enable`).
+- `WEBHOOK_URL`: URL fuer Benachrichtigungen (Discord/Slack).
+- `DRY_RUN`: Falls `true`, werden nur Updates simuliert.
+- `MAX_WORKERS`: Anzahl paralleler Pruefungen (Standard: 4).
+
+### Container fuer die Ueberwachung markieren
 Damit ein Container aktualisiert wird, muss er mit dem entsprechenden Label gestartet werden:
 
 ```bash
 docker run -d \
   --name mein-app-container \
-  --label com.watchtower.enable=true \
+  --label com.lighthouse.enable=true \
   nginx:latest
 ```
 

@@ -36,7 +36,7 @@ def get_version():
 
 def main():
     """
-    Der Haupteinstiegspunkt des Watchtower-Klons.
+    Der Haupteinstiegspunkt von Lighthouse.
     Hier wird die Endlosschleife gestartet, die regelmaessig
     nach Updates sucht und diese ausfuehrt.
     """
@@ -45,7 +45,7 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     version = get_version()
-    logger.info(f"Watchtower-Klon (v{version}) gestartet. Druecke Strg+C zum Schliessen.")
+    logger.info(f"Lighthouse (v{version}) gestartet. Druecke Strg+C zum Schliessen.")
     logger.info(f"Abfrageintervall: {Config.POLL_INTERVAL} Sekunden.")
     
     # Docker-Handler initialisieren.
