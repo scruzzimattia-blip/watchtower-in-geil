@@ -13,3 +13,5 @@ venv.bak/
 *.swp
 *.swo
 GEMINI.md
+venv/
+venv_lint/

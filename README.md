@@ -6,12 +6,15 @@ Ein schlanker Docker-Container-Update-Dienst in Python, der laufende Instanzen a
 - Nutzt die asynchrone Docker-API (aiodocker) fuer hohe Performance.
 - Parallele Pruefung von Containern via AsyncIO.
 - Automatischer Rollback: Falls ein Update fehlschlaegt (Healthcheck), wird die vorherige Version automatisch wiederhergestellt.
+- Lifecycle Hooks: Befehle vor (`pre-update`) und nach (`post-update`) dem Update im Container ausfuehren.
 - Docker Compose Integration: Behaelt Labels, Netzwerke und Konfigurationen bei.
+- Abhaengigkeits-Management: Beruecksichtigt `depends_on` bei Updates.
 - Flexibles Scheduling: Unterstuetzt sowohl Intervalle als auch Cron-Ausdruecke.
-- Zusammenfassende Benachrichtigungen via Discord/Slack Webhooks.
+- Monitoring: Integrierter Prometheus Metrik-Server.
+- Umfangreiche Benachrichtigungen: Unterstuetzung von ueber 100 Diensten (Telegram, Email, Discord, etc.) via Apprise.
+- Remote Docker Support: Verbindung zu entfernten Docker-Hosts via TCP/TLS.
+- Filter: Container gezielt via Namen ein- oder ausschliessen.
 - Dry-Run Modus fuer Simulationen.
-- Behaelt wichtige Konfigurationen wie Umgebungsvariablen, Ports und Volumes bei.
-- Vollstaendige CI/CD-Pipeline via GitHub Actions (GHCR).
 
 ## Installation & Betrieb (Docker)
 
@@ -56,12 +59,21 @@ docker compose up -d
 ### Konfiguration
 Das Tool kann ueber Umgebungsvariablen konfiguriert werden:
 - `POLL_INTERVAL`: Zeitabstand zwischen den Pruefungen in Sekunden (Standard: 300).
-- `CRON_SCHEDULE`: Cron-Ausdruck fuer geplante Pruefungen (z. B. `0 3 * * *` fuer 3 Uhr morgens). Ueberschreibt `POLL_INTERVAL`.
+- `CRON_SCHEDULE`: Cron-Ausdruck fuer geplante Pruefungen (z. B. `0 3 * * *`). Ueberschreibt `POLL_INTERVAL`.
+- `NOTIFICATION_URLS`: Kommagetrennte Liste von Apprise-URLs (z. B. `discord://webhook_id/webhook_token`).
+- `METRICS_PORT`: Port fuer den Prometheus-Server (Standard: 8080).
+- `INCLUDE_CONTAINERS` / `EXCLUDE_CONTAINERS`: Kommagetrennte Liste von Containernamen.
+- `DOCKER_HOST`: URL zum Docker-Socket/Host (z. B. `tcp://192.168.1.10:2375`).
 - `WATCH_LABEL`: Label, nach dem gesucht werden soll (Standard: `com.lighthouse.enable`).
-- `WEBHOOK_URL`: URL fuer Benachrichtigungen (Discord/Slack).
+- `WEBHOOK_URL`: Veraltet (Nutzen Sie `NOTIFICATION_URLS`).
 - `DRY_RUN`: Falls `true`, werden nur Updates simuliert.
 - `MAX_WORKERS`: Anzahl paralleler Pruefungen (Standard: 4).
-- `SKIP_PULL_ERROR`: Falls `true`, werden Fehler beim Pull eines Images ignoriert und der Scan fortgesetzt.
+- `SKIP_PULL_ERROR`: Falls `true`, werden Fehler beim Pull ignoriert.
+
+### Lifecycle Hooks
+Sie koennen Befehle definieren, die vor oder nach einem Update ausgefuehrt werden:
+- `com.lighthouse.pre-update`: Befehl vor dem Stoppen (z. B. `mysql -u root -p dump`).
+- `com.lighthouse.post-update`: Befehl nach dem Starten (z. B. `npm run migrate`).
 
 ### Container fuer die Ueberwachung markieren
 Damit ein Container aktualisiert wird, muss er mit dem entsprechenden Label gestartet werden:
