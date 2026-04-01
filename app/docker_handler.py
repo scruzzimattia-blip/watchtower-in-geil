@@ -197,10 +197,8 @@ class DockerHandler:
         original_name = info["Name"].lstrip("/")
         backup_name = f"{original_name}_backup"
 
-        # Pre-Update Hook ausfuehren.
         await self._run_hook(container, "com.lighthouse.pre-update")
 
-        # 1. Backup erstellen (Umbenennen).
         logger.info(f"Erstelle Backup: Benenne {original_name} in {backup_name} um...")
         try:
             await container.rename(backup_name)
@@ -210,58 +208,75 @@ class DockerHandler:
                 summary.add_failed(original_name)
             return False
 
-        # 2. Neuen Container erstellen.
-        logger.info(f"Starte neuen Container {original_name}...")
-        new_container = None
         try:
-            config = self._prepare_config(info, image_name, original_name)
-            new_container = await self.client.containers.create(
-                config=config, name=original_name
+            new_container = await self._create_and_start_container(
+                info, image_name, original_name
             )
-            await self._connect_networks(new_container, info)
-            await new_container.start()
-
-            # 3. Validieren (Healthcheck).
             if await self.wait_for_health(new_container):
-                logger.info(f"Container {original_name} erfolgreich aktualisiert.")
-                if summary:
-                    summary.add_updated(original_name)
-
-                # Post-Update Hook ausfuehren.
-                await self._run_hook(new_container, "com.lighthouse.post-update")
-
-                # Altes Backup loeschen.
-                backup_container = await self.client.containers.get(backup_name)
-                await backup_container.stop()
-                await backup_container.delete()
+                await self._finalize_success(
+                    new_container, original_name, backup_name, summary
+                )
                 return True
-            else:
-                raise RuntimeError("Healthcheck fehlgeschlagen.")
-
+            raise RuntimeError("Healthcheck fehlgeschlagen.")
         except Exception as e:
-            logger.warning(
-                f"Update fehlgeschlagen für {original_name}: {e}. Starte Rollback..."
-            )
-            metrics.ROLLBACKS_TOTAL.inc()
-            if summary:
-                summary.add_rolled_back(original_name)
-
-            if new_container:
-                try:
-                    await new_container.stop()
-                    await new_container.delete()
-                except Exception:
-                    pass
-
-            try:
-                backup_container = await self.client.containers.get(backup_name)
-                await backup_container.rename(original_name)
-                await backup_container.start()
-                logger.info(f"Rollback fuer {original_name} erfolgreich abgeschlossen.")
-            except Exception as re:
-                logger.critical(f"KRITISCH: Rollback fuer {original_name} fehlgeschlagen: {re}")
-
+            await self._handle_rollback(
+                None, original_name, backup_name, e, summary
+            )  # new_container handled inside
             return False
+
+    async def _create_and_start_container(self, old_info, image_name, name):
+        """Erstellt und startet den neuen Container."""
+        logger.info(f"Starte neuen Container {name}...")
+        config = self._prepare_config(old_info, image_name, name)
+        new_container = await self.client.containers.create(config=config, name=name)
+        await self._connect_networks(new_container, old_info)
+        await new_container.start()
+        return new_container
+
+    async def _finalize_success(self, container, name, backup_name, summary):
+        """Schliesst ein erfolgreiches Update ab."""
+        logger.info(f"Container {name} erfolgreich aktualisiert.")
+        if summary:
+            summary.add_updated(name)
+
+        await self._run_hook(container, "com.lighthouse.post-update")
+
+        try:
+            backup_container = await self.client.containers.get(backup_name)
+            await backup_container.stop()
+            await backup_container.delete()
+        except Exception:
+            pass
+
+    async def _handle_rollback(self, new_container, name, backup_name, error, summary):
+        """Fuehrt ein Rollback im Fehlerfall durch."""
+        logger.warning(f"Update fehlgeschlagen für {name}: {error}. Starte Rollback...")
+        metrics.ROLLBACKS_TOTAL.inc()
+        if summary:
+            summary.add_rolled_back(name)
+
+        if new_container:
+            try:
+                await new_container.stop()
+                await new_container.delete()
+            except Exception:
+                pass
+        else:
+            # Falls create_and_start fehlschlug, muessen wir den Container evtl. via Name suchen
+            try:
+                c = await self.client.containers.get(name)
+                await c.stop()
+                await c.delete()
+            except Exception:
+                pass
+
+        try:
+            backup_container = await self.client.containers.get(backup_name)
+            await backup_container.rename(name)
+            await backup_container.start()
+            logger.info(f"Rollback fuer {name} erfolgreich abgeschlossen.")
+        except Exception as re:
+            logger.critical(f"KRITISCH: Rollback fuer {name} fehlgeschlagen: {re}")
 
     def _prepare_config(self, info, image_name, name):
         """Extrahiert und bereitet die Konfiguration fuer den neuen Container vor."""
