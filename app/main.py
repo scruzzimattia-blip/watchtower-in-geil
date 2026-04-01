@@ -34,16 +34,17 @@ def get_version():
     except FileNotFoundError:
         return "unbekannt"
 
-async def get_next_run_delay():
-    """Berechnet die Verzögerung bis zum nächsten Durchlauf (Cron oder Interval)."""
+async def get_next_run_delay(now=None):
+    """Berechnet die Verzoegerung bis zum naechsten Durchlauf (Cron oder Interval)."""
     if Config.CRON_SCHEDULE:
-        now = datetime.now()
+        if now is None:
+            now = datetime.now()
         cron = croniter(Config.CRON_SCHEDULE, now)
         next_run = cron.get_next(datetime)
         delay = (next_run - now).total_seconds()
         logger.info(f"Naechster Cron-Durchlauf geplant fuer: {next_run} (in {int(delay)}s)")
         return delay
-    return Config.POLL_INTERVAL
+    return float(Config.POLL_INTERVAL)
 
 async def main():
     # Signal-Handler (async-kompatibel).
