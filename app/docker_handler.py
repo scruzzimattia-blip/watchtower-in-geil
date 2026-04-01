@@ -73,7 +73,8 @@ class DockerHandler:
                 
                 if Config.DRY_RUN:
                     logger.info(f"[DRY RUN] Neustart von {container_name} wird uebersprungen.")
-                    if summary: summary.add_updated(f"{container_name} (simuliert)")
+                    if summary:
+                        summary.add_updated(f"{container_name} (simuliert)")
                     return
 
                 # Starte den Container neu mit Rollback-Sicherung.
@@ -87,7 +88,8 @@ class DockerHandler:
         except Exception as e:
             error_msg = f"Fehler beim Update von {container_name}: {e}"
             logger.error(error_msg)
-            if summary: summary.add_failed(container_name)
+            if summary:
+                summary.add_failed(container_name)
             if not Config.SKIP_PULL_ERROR:
                 raise
 
@@ -109,7 +111,8 @@ class DockerHandler:
             await container.rename(backup_name)
         except Exception as e:
             logger.error(f"Konnte Backup fuer {original_name} nicht erstellen: {e}")
-            if summary: summary.add_failed(original_name)
+            if summary:
+                summary.add_failed(original_name)
             return False
 
         # 2. Neuen Container erstellen.
@@ -128,25 +131,28 @@ class DockerHandler:
             # 3. Validieren (Healthcheck).
             if await self.wait_for_health(new_container):
                 logger.info(f"Container {original_name} erfolgreich aktualisiert.")
-                if summary: summary.add_updated(original_name)
+                if summary:
+                    summary.add_updated(original_name)
                 # Altes Backup loeschen.
                 backup_container = await self.client.containers.get(backup_name)
                 await backup_container.stop()
                 await backup_container.delete()
                 return True
             else:
-                raise Exception("Healthcheck fehlgeschlagen.")
+                raise RuntimeError("Healthcheck fehlgeschlagen.")
 
         except Exception as e:
             logger.warning(f"Update fehlgeschlagen für {original_name}: {e}. Starte Rollback...")
-            if summary: summary.add_rolled_back(original_name)
+            if summary:
+                summary.add_rolled_back(original_name)
             
             # Rollback einleiten.
             if new_container:
                 try:
                     await new_container.stop()
                     await new_container.delete()
-                except: pass
+                except Exception:
+                    pass
 
             try:
                 backup_container = await self.client.containers.get(backup_name)
@@ -188,7 +194,8 @@ class DockerHandler:
         for net_name, net_config in networks.items():
             try:
                 # 'default' Netzwerk wird oft automatisch verbunden, wir muessen vorsichtig sein.
-                if net_name == 'bridge': continue 
+                if net_name == 'bridge':
+                    continue 
                 
                 network = await self.client.networks.get(net_name)
                 await network.connect({
@@ -198,7 +205,7 @@ class DockerHandler:
                     }
                 })
             except Exception as e:
-                logger.debug(f"Netzwerk-Verbindung zu {net_name} fehlgeschlagen (evtl. bereits verbunden): {e}")
+                logger.debug(f"Netzwerk-Verbindung zu {net_name} fehlgeschlagen: {e}")
 
     async def wait_for_health(self, container, timeout=60):
         """Wartet darauf, dass ein Container 'healthy' wird."""
@@ -226,7 +233,7 @@ class DockerHandler:
         try:
             await self.client.images.delete(image_id)
             logger.info(f"Altes Image {image_id[:12]} bereinigt.")
-        except:
+        except Exception:
             pass
 
     async def close(self):
@@ -241,7 +248,5 @@ class DockerHandler:
                 if event['Type'] == 'container' and event['Action'] == 'start':
                     container_id = event['Actor']['Attributes'].get('name') or event['id']
                     logger.info(f"Event: Container {container_id} gestartet. Pruefe auf Updates...")
-                    # Hier koennte man eine gezielte Pruefung triggern.
-                    # Fuer v0.3.0 loggen wir es erst einmal nur.
         except Exception as e:
             logger.error(f"Fehler im Event-Listener: {e}")

@@ -1,0 +1,32 @@
+[project]
+name = "lighthouse"
+version = "0.5.0"
+description = "Ein schlanker Docker-Container-Update-Dienst in Python"
+authors = [{ name = "Mattia", email = "mattia@scruzzi.com" }]
+requires-python = ">=3.11"
+
+[tool.ruff]
+# Unterstützte Python-Version.
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# Aktiviere wichtige Regeln (Pyflakes, Pycodestyle, Isort, etc.)
+select = ["E", "F", "I", "W", "C90", "PL"]
+ignore = []
+
+# Erlaube Docstrings mit "ss" (Projektregel).
+[tool.ruff.lint.per-file-ignores]
+"**/*.py" = ["D"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# Custom-Regel-Simulation via Ruff's 'flake8-tidy-imports' 
+# oder einfach als Kommentar für Entwickler.
+# HINWEIS: Wir koennen Ruff nutzen, um spezifische "ss" statt "ß" Regeln zu erzwingen.
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"

@@ -1,6 +1,9 @@
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
+
 from app.notifier import Notifier, ScanSummary
+
 
 @pytest.fixture
 def mock_config():
@@ -11,15 +14,15 @@ def test_send_summary_with_content(mock_config):
     """Prueft, ob eine Zusammenfassung mit Inhalt gesendet wird."""
     with patch('requests.post') as mock_post:
         mock_post.return_value.status_code = 200
-        
+
         notifier = Notifier()
         summary = ScanSummary()
         summary.add_updated("app1")
         summary.add_failed("app2")
         summary.add_rolled_back("app3")
-        
+
         notifier.send_summary(summary)
-        
+
         assert mock_post.called
         # Pruefe, ob alle Elemente im Payload vorkommen.
         payload = mock_post.call_args[1]['json']['content']
@@ -35,9 +38,9 @@ def test_send_summary_empty(mock_config):
     with patch('requests.post') as mock_post:
         notifier = Notifier()
         summary = ScanSummary()
-        
+
         notifier.send_summary(summary)
-        
+
         assert not mock_post.called
 
 def test_notifier_no_url():

@@ -1,5 +1,7 @@
-import requests
 import logging
+
+import requests
+
 from app.config import Config
 
 logger = logging.getLogger(__name__)
@@ -32,7 +34,7 @@ class Notifier:
             lines.append(f"❌ Fehlgeschlagen: {', '.join(summary.failed)}")
         if summary.rolled_back:
             lines.append(f"⚠️ Rollbacks: {', '.join(summary.rolled_back)}")
-        
+
         if len(lines) > 1:
             self._post("\n".join(lines))
 
@@ -47,7 +49,7 @@ class Notifier:
         try:
             payload = {"content": message}
             response = requests.post(self.webhook_url, json=payload, timeout=10)
-            
+
             if response.status_code == 400:
                 payload = {"text": message}
                 response = requests.post(self.webhook_url, json=payload, timeout=10)

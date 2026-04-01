@@ -1,9 +1,11 @@
 import asyncio
 import logging
-import sys
 import signal
+import sys
 from datetime import datetime
+
 from croniter import croniter
+
 from app.config import Config
 from app.docker_handler import DockerHandler
 from app.notifier import ScanSummary
@@ -50,9 +52,9 @@ async def main():
 
     version = get_version()
     logger.info(f"Lighthouse (v{version}) gestartet.")
-    
+
     handler = DockerHandler()
-    
+
     # Event-Listener im Hintergrund starten.
     event_task = asyncio.create_task(handler.listen_events())
 
@@ -60,16 +62,16 @@ async def main():
         while RUNNING:
             logger.info("Starte Scan-Durchlauf...")
             summary = ScanSummary()
-            
+
             containers = await handler.get_watchable_containers()
-            
+
             # Parallele Ausfuehrung der Pruefungen.
             tasks = [handler.check_and_update(c, summary) for c in containers]
             await asyncio.gather(*tasks)
-            
+
             # Zusammenfassung senden.
             handler.notifier.send_summary(summary)
-            
+
             if RUNNING:
                 delay = await get_next_run_delay()
                 # Schlafen in kleinen Schritten, um auf RUNNING=False zu reagieren.
