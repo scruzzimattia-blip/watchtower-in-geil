@@ -29,15 +29,20 @@ class DockerHandler:
     async def get_watchable_containers(self):
         """
         Gibt eine Liste aller Container zurueck, die ueberwacht werden sollen.
+        Die Liste ist nach Abhaengigkeiten sortiert.
         """
         all_containers = await self.client.containers.list()
         watch_label = Config.WATCH_LABEL
         
         watchable = []
+        container_map = {} # Name -> Container Object
+
         for container in all_containers:
             info = await container.show()
-            labels = info.get('Config', {}).get('Labels', {})
             container_name = info['Name'].lstrip('/')
+            container_map[container_name] = container
+            
+            labels = info.get('Config', {}).get('Labels', {})
 
             # Filterlogik (Include/Exclude).
             if Config.INCLUDE_CONTAINERS and container_name not in Config.INCLUDE_CONTAINERS:
@@ -50,8 +55,60 @@ class DockerHandler:
             elif watch_label in labels and labels[watch_label].lower() == "true":
                 watchable.append(container)
         
-        logger.info(f"Es wurden {len(watchable)} zu ueberwachende Container gefunden.")
-        return watchable
+        # Sortierung nach Abhaengigkeiten.
+        sorted_watchable = await self.sort_containers_by_dependencies(watchable, container_map)
+        
+        logger.info(f"Es wurden {len(sorted_watchable)} zu ueberwachende Container gefunden.")
+        return sorted_watchable
+
+    async def sort_containers_by_dependencies(self, containers, container_map):
+        """
+        Sortiert Container topologisch basierend auf 'depends_on' Labels.
+        """
+        from collections import deque
+
+        # Graphen aufbauen.
+        adj = {info['Name'].lstrip('/'): [] for info in [await c.show() for c in containers]}
+        in_degree = {name: 0 for name in adj}
+        
+        # Nur Container beruecksichtigen, die wir auch ueberwachen.
+        watchable_names = set(adj.keys())
+
+        for container in containers:
+            info = await container.show()
+            name = info['Name'].lstrip('/')
+            labels = info.get('Config', {}).get('Labels', {})
+            
+            # Docker Compose nutzt oft 'com.docker.compose.depends_on'
+            depends_raw = labels.get('com.docker.compose.depends_on', '')
+            # Format ist oft "service:condition", wir brauchen nur den Namen.
+            dependencies = [d.split(':')[0] for d in depends_raw.split(',') if d]
+
+            for dep in dependencies:
+                if dep in watchable_names:
+                    adj[dep].append(name)
+                    in_degree[name] += 1
+
+        # Topologische Sortierung (Kahn's Algorithmus).
+        queue = deque([name for name in in_degree if in_degree[name] == 0])
+        sorted_names = []
+
+        while queue:
+            u = queue.popleft()
+            sorted_names.append(u)
+            for v in adj.get(u, []):
+                in_degree[v] -= 1
+                if in_degree[v] == 0:
+                    queue.append(v)
+
+        # Falls ein Zyklus existiert, nehmen wir die verbliebenen einfach dazu.
+        for name in watchable_names:
+            if name not in sorted_names:
+                sorted_names.append(name)
+
+        # Zurueck zu Container-Objekten.
+        name_to_container = { (await c.show())['Name'].lstrip('/'): c for c in containers }
+        return [name_to_container[name] for name in sorted_names if name in name_to_container]
 
     async def check_and_update(self, container, summary=None):
         """

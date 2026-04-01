@@ -8,6 +8,7 @@ from croniter import croniter
 
 from app.config import Config
 from app.docker_handler import DockerHandler
+from app.metrics import LAST_SCAN_TIME, start_metrics_server
 from app.notifier import ScanSummary
 
 # Logger einrichten.
@@ -53,6 +54,9 @@ async def main():
     version = get_version()
     logger.info(f"Lighthouse (v{version}) gestartet.")
 
+    # Metrik-Server starten.
+    start_metrics_server()
+
     handler = DockerHandler()
 
     # Event-Listener im Hintergrund starten.
@@ -61,6 +65,7 @@ async def main():
     try:
         while RUNNING:
             logger.info("Starte Scan-Durchlauf...")
+            LAST_SCAN_TIME.set_to_current_time()
             summary = ScanSummary()
 
             containers = await handler.get_watchable_containers()
