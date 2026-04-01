@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -7,13 +7,15 @@ from app.notifier import Notifier, ScanSummary
 
 @pytest.fixture
 def mock_config():
-    with patch('app.config.Config.WEBHOOK_URL', 'http://webhook.url'):
+    with patch("app.config.Config.NOTIFICATION_URLS", "discord://webhook_id/webhook_token"):
         yield
 
+
 def test_send_summary_with_content(mock_config):
-    """Prueft, ob eine Zusammenfassung mit Inhalt gesendet wird."""
-    with patch('requests.post') as mock_post:
-        mock_post.return_value.status_code = 200
+    """Prueft, ob eine Zusammenfassung via Apprise gesendet wird."""
+    with patch("apprise.Apprise") as mock_apprise_class:
+        mock_apobj = MagicMock()
+        mock_apprise_class.return_value = mock_apobj
 
         notifier = Notifier()
         summary = ScanSummary()
@@ -23,29 +25,45 @@ def test_send_summary_with_content(mock_config):
 
         notifier.send_summary(summary)
 
-        assert mock_post.called
-        # Pruefe, ob alle Elemente im Payload vorkommen.
-        payload = mock_post.call_args[1]['json']['content']
-        assert "app1" in payload
-        assert "app2" in payload
-        assert "app3" in payload
-        assert "✅ Aktualisiert" in payload
-        assert "❌ Fehlgeschlagen" in payload
-        assert "⚠️ Rollbacks" in payload
+        # Pruefe, ob notify aufgerufen wurde.
+        assert mock_apobj.notify.called
+        # Pruefe den Inhalt des Bodys.
+        args, kwargs = mock_apobj.notify.call_args
+        body = kwargs.get("body", "")
+        assert "app1" in body
+        assert "app2" in body
+        assert "app3" in body
+        assert "✅ Aktualisiert" in body
+        assert "❌ Fehlgeschlagen" in body
+        assert "⚠️ Rollbacks" in body
+
 
 def test_send_summary_empty(mock_config):
     """Prueft, dass bei einer leeren Zusammenfassung nichts gesendet wird."""
-    with patch('requests.post') as mock_post:
+    with patch("apprise.Apprise") as mock_apprise_class:
+        mock_apobj = MagicMock()
+        mock_apprise_class.return_value = mock_apobj
+
         notifier = Notifier()
         summary = ScanSummary()
 
         notifier.send_summary(summary)
 
-        assert not mock_post.called
+        assert not mock_apobj.notify.called
+
 
 def test_notifier_no_url():
-    """Prueft, dass kein Fehler auftritt, wenn kein Webhook konfiguriert ist."""
-    with patch('app.config.Config.WEBHOOK_URL', None):
-        notifier = Notifier()
-        # Sollte einfach lautlos ueberspringen.
-        notifier.send("Test")
+    """Prueft, dass kein Sendeversuch erfolgt, wenn keine URLs konfiguriert sind."""
+    with patch("app.config.Config.NOTIFICATION_URLS", ""):
+        with patch("apprise.Apprise") as mock_apprise_class:
+            mock_apobj = MagicMock()
+            mock_apprise_class.return_value = mock_apobj
+
+            notifier = Notifier()
+            # Falls apobj leer/leer-initialisiert ist (abhaengig von Impl),
+            # sollte notify nicht gerufen werden.
+            notifier.send("Test")
+
+            # Da Notifier() apobj immer initialisiert, aber nur URLs addet wenn vorhanden:
+            # Wir pruefen ob add gerufen wurde (sollte nicht).
+            assert not mock_apobj.add.called
