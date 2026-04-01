@@ -1,0 +1,23 @@
+name: "🚀 Feature Request"
+description: Schlage eine neue Funktion fuer Lighthouse vor.
+labels: ["type: enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welches Problem loest dieser Vorschlag?
+      placeholder: Eine klare Beschreibung des Bedarfs.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Beschreibung der Loesung
+      placeholder: Wie sollte die Funktion deiner Meinung nach arbeiten?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Zusaetzlicher Kontext
+      placeholder: Screenshots, Beispiele von Watchtower oder andere Referenzen.

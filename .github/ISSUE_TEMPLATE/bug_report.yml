@@ -1,0 +1,37 @@
+name: "🐛 Bug Report"
+description: Melde einen Fehler, um Lighthouse besser zu machen.
+labels: ["type: bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Vielen Dank fuer das Melden eines Fehlers! Bitte fuelle die folgenden Informationen aus.
+  - type: textarea
+    id: description
+    attributes:
+      label: Beschreibung des Fehlers
+      placeholder: Was genau passiert?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Schritte zur Reproduktion
+      placeholder: |
+        1. Starte Container X mit Label Y...
+        2. Warte auf Intervall...
+        3. Siehe Fehler in Log...
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Umgebung
+      placeholder: "z. B. Ubuntu 22.04, Docker v25.0.3"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevante Logs
+      render: shell

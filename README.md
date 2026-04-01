@@ -75,6 +75,17 @@ Sie koennen Befehle definieren, die vor oder nach einem Update ausgefuehrt werde
 - `com.lighthouse.pre-update`: Befehl vor dem Stoppen (z. B. `mysql -u root -p dump`).
 - `com.lighthouse.post-update`: Befehl nach dem Starten (z. B. `npm run migrate`).
 
+## 🤝 Mitwirken (Contributing)
+
+Lighthouse ist ein Community-Projekt! Ob du Fehler behebst, neue Funktionen implementierst oder die Dokumentation verbesserst – jede Hilfe ist willkommen. 
+
+**Warum mitwirken?**
+- Verbessere deine Python- und Docker-Kenntnisse.
+- Gestalte ein Tool mit, das von vielen Entwicklern genutzt wird.
+- Werde Teil einer offenen und hilfsbereiten Community.
+
+Schau in unseren [Contributing Guide](.github/CONTRIBUTING.md), um zu erfahren, wie du deine erste Entwicklungsumgebung aufsetzt und deinen ersten Pull Request einreichst. Wir freuen uns auf deine Ideen!
+
 ### Container fuer die Ueberwachung markieren
 Damit ein Container aktualisiert wird, muss er mit dem entsprechenden Label gestartet werden:
 
