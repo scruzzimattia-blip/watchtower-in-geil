@@ -4,6 +4,7 @@ import asyncio
 import time
 from app.config import Config
 from app.notifier import Notifier
+from app import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,12 @@ class DockerHandler:
     """
     def __init__(self):
         try:
-            self.client = aiodocker.Docker()
+            # Verbindungsdaten fuer Remote Docker Hosts vorbereiten.
+            conn_args = {}
+            if Config.DOCKER_HOST:
+                conn_args['url'] = Config.DOCKER_HOST
+            
+            self.client = aiodocker.Docker(**conn_args)
             self.notifier = Notifier()
             logger.info("Verbindung zur Docker-API (aiodocker) erfolgreich hergestellt.")
         except Exception as e:
@@ -31,7 +37,14 @@ class DockerHandler:
         for container in all_containers:
             info = await container.show()
             labels = info.get('Config', {}).get('Labels', {})
-            
+            container_name = info['Name'].lstrip('/')
+
+            # Filterlogik (Include/Exclude).
+            if Config.INCLUDE_CONTAINERS and container_name not in Config.INCLUDE_CONTAINERS:
+                continue
+            if Config.EXCLUDE_CONTAINERS and container_name in Config.EXCLUDE_CONTAINERS:
+                continue
+
             if not watch_label:
                 watchable.append(container)
             elif watch_label in labels and labels[watch_label].lower() == "true":
@@ -48,20 +61,15 @@ class DockerHandler:
         container_name = info['Name'].lstrip('/')
         image_name = info['Config']['Image']
         
-        # Versuche, den vollstaendigen Image-Namen inklusive Tag zu finden.
         image_info = await self.client.images.inspect(image_name)
         old_image_id = image_info['Id']
 
         try:
             logger.info(f"Pulle neustes Image fuer {image_name}...")
             
-            # Authentifizierung vorbereiten.
             auth = None
             if Config.REGISTRY_USER and Config.REGISTRY_PASS:
-                auth = {
-                    'username': Config.REGISTRY_USER,
-                    'password': Config.REGISTRY_PASS
-                }
+                auth = {'username': Config.REGISTRY_USER, 'password': Config.REGISTRY_PASS}
 
             await self.client.images.pull(image_name, auth=auth)
             new_image_info = await self.client.images.inspect(image_name)
@@ -80,30 +88,57 @@ class DockerHandler:
                 # Starte den Container neu mit Rollback-Sicherung.
                 success = await self.recreate_with_rollback(container, image_name, summary)
                 if success:
-                    # Altes Image bereinigen.
                     await self.cleanup_old_image(old_image_id)
+                    metrics.UPDATES_TOTAL.inc()
+                else:
+                    metrics.UPDATES_FAILED.inc()
             else:
                 logger.info(f"Container {container_name} ist bereits aktuell.")
                 
         except Exception as e:
             error_msg = f"Fehler beim Update von {container_name}: {e}"
             logger.error(error_msg)
+            metrics.UPDATES_FAILED.inc()
             if summary:
                 summary.add_failed(container_name)
             if not Config.SKIP_PULL_ERROR:
                 raise
 
+    async def _run_hook(self, container, label_key):
+        """Fuehrt einen Befehl innerhalb des Containers aus (Lifecycle Hook)."""
+        info = await container.show()
+        labels = info.get('Config', {}).get('Labels', {})
+        hook_cmd = labels.get(label_key)
+
+        if not hook_cmd:
+            return
+
+        logger.info(f"Fuehre Hook aus ({label_key}) fuer {info['Name']}: {hook_cmd}")
+        try:
+            # aiodocker exec nutzen.
+            config = {
+                "Cmd": hook_cmd.split(),
+                "AttachStdout": True,
+                "AttachStderr": True
+            }
+            exec_obj = await container.exec(config)
+            async with exec_obj.start() as stream:
+                output = await stream.read_out()
+                if output:
+                    logger.debug(f"Hook Output: {output.data.decode().strip()}")
+        except Exception as e:
+            logger.error(f"Fehler beim Ausfuehren des Hooks {label_key}: {e}")
+
     async def recreate_with_rollback(self, container, image_name, summary):
         """
-        Implementiert den sicheren Rollback-Mechanismus.
-        1. Backup des alten Containers (Umbenennen).
-        2. Neuen Container starten.
-        3. Validieren.
-        4. Bei Fehler: Rollback zum Backup.
+        Implementiert den sicheren Rollback-Mechanismus und Lifecycle Hooks.
         """
         info = await container.show()
         original_name = info['Name'].lstrip('/')
         backup_name = f"{original_name}_backup"
+
+        # Pre-Update Hook ausfuehren.
+        await self._run_hook(container, "com.lighthouse.pre-update")
 
         # 1. Backup erstellen (Umbenennen).
         logger.info(f"Erstelle Backup: Benenne {original_name} in {backup_name} um...")
@@ -119,13 +154,9 @@ class DockerHandler:
         logger.info(f"Starte neuen Container {original_name}...")
         new_container = None
         try:
-            # Konfiguration vorbereiten (inkl. Compose-Labels).
             config = self._prepare_config(info, image_name, original_name)
             new_container = await self.client.containers.create(config=config, name=original_name)
-            
-            # Netzwerke verbinden.
             await self._connect_networks(new_container, info)
-            
             await new_container.start()
             
             # 3. Validieren (Healthcheck).
@@ -133,6 +164,10 @@ class DockerHandler:
                 logger.info(f"Container {original_name} erfolgreich aktualisiert.")
                 if summary:
                     summary.add_updated(original_name)
+                
+                # Post-Update Hook ausfuehren.
+                await self._run_hook(new_container, "com.lighthouse.post-update")
+
                 # Altes Backup loeschen.
                 backup_container = await self.client.containers.get(backup_name)
                 await backup_container.stop()
@@ -143,10 +178,10 @@ class DockerHandler:
 
         except Exception as e:
             logger.warning(f"Update fehlgeschlagen für {original_name}: {e}. Starte Rollback...")
+            metrics.ROLLBACKS_TOTAL.inc()
             if summary:
                 summary.add_rolled_back(original_name)
             
-            # Rollback einleiten.
             if new_container:
                 try:
                     await new_container.stop()
@@ -169,7 +204,6 @@ class DockerHandler:
         old_config = info['Config']
         host_config = info['HostConfig']
         
-        # Basis-Konfiguration.
         new_config = {
             'Image': image_name,
             'Labels': old_config.get('Labels', {}),
@@ -193,7 +227,6 @@ class DockerHandler:
         networks = old_info.get('NetworkSettings', {}).get('Networks', {})
         for net_name, net_config in networks.items():
             try:
-                # 'default' Netzwerk wird oft automatisch verbunden, wir muessen vorsichtig sein.
                 if net_name == 'bridge':
                     continue 
                 
@@ -241,7 +274,7 @@ class DockerHandler:
         await self.client.close()
 
     async def listen_events(self):
-        """Horcht auf Docker-Events, um sofort auf Container-Starts zu reagieren."""
+        """Horcht auf Docker-Events."""
         logger.info("Starte Docker Event-Listener...")
         try:
             async for event in self.client.events():
