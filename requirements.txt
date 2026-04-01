@@ -4,3 +4,5 @@ requests==2.31.0
 aiodocker==0.23.0
 croniter==2.0.2
 pytest-asyncio==0.23.6
+apprise==1.7.1
+prometheus_client==0.20.0

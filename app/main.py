@@ -1,11 +1,14 @@
 import asyncio
 import logging
-import sys
 import signal
+import sys
 from datetime import datetime
+
 from croniter import croniter
+
 from app.config import Config
 from app.docker_handler import DockerHandler
+from app.metrics import LAST_SCAN_TIME, start_metrics_server
 from app.notifier import ScanSummary
 
 # Logger einrichten.
@@ -20,7 +23,7 @@ logger = logging.getLogger(__name__)
 RUNNING = True
 
 def signal_handler(sig, frame):
-    global RUNNING
+    global RUNNING  # noqa: PLW0603
     logger.info(f"Signal {sig} empfangen. Beende Anwendung sauber...")
     RUNNING = False
 
@@ -31,16 +34,17 @@ def get_version():
     except FileNotFoundError:
         return "unbekannt"
 
-async def get_next_run_delay():
-    """Berechnet die Verzögerung bis zum nächsten Durchlauf (Cron oder Interval)."""
+async def get_next_run_delay(now=None):
+    """Berechnet die Verzoegerung bis zum naechsten Durchlauf (Cron oder Interval)."""
     if Config.CRON_SCHEDULE:
-        now = datetime.now()
+        if now is None:
+            now = datetime.now()
         cron = croniter(Config.CRON_SCHEDULE, now)
         next_run = cron.get_next(datetime)
         delay = (next_run - now).total_seconds()
         logger.info(f"Naechster Cron-Durchlauf geplant fuer: {next_run} (in {int(delay)}s)")
         return delay
-    return Config.POLL_INTERVAL
+    return float(Config.POLL_INTERVAL)
 
 async def main():
     # Signal-Handler (async-kompatibel).
@@ -50,26 +54,30 @@ async def main():
 
     version = get_version()
     logger.info(f"Lighthouse (v{version}) gestartet.")
-    
+
+    # Metrik-Server starten.
+    start_metrics_server()
+
     handler = DockerHandler()
-    
+
     # Event-Listener im Hintergrund starten.
     event_task = asyncio.create_task(handler.listen_events())
 
     try:
         while RUNNING:
             logger.info("Starte Scan-Durchlauf...")
+            LAST_SCAN_TIME.set_to_current_time()
             summary = ScanSummary()
-            
+
             containers = await handler.get_watchable_containers()
-            
+
             # Parallele Ausfuehrung der Pruefungen.
             tasks = [handler.check_and_update(c, summary) for c in containers]
             await asyncio.gather(*tasks)
-            
+
             # Zusammenfassung senden.
             handler.notifier.send_summary(summary)
-            
+
             if RUNNING:
                 delay = await get_next_run_delay()
                 # Schlafen in kleinen Schritten, um auf RUNNING=False zu reagieren.
@@ -85,7 +93,7 @@ async def main():
         logger.info("Anwendung ordnungsgemaess beendet.")
 
 async def shutdown():
-    global RUNNING
+    global RUNNING  # noqa: PLW0603
     RUNNING = False
     logger.info("Shutdown eingeleitet...")
 

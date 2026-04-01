@@ -1,26 +1,39 @@
-import requests
 import logging
+
+import apprise
+
 from app.config import Config
 
 logger = logging.getLogger(__name__)
 
 class Notifier:
     """
-    Diese Klasse uebernimmt das Senden von Benachrichtigungen ueber Webhooks.
+    Diese Klasse nutzt Apprise, um Benachrichtigungen an verschiedenste Dienste zu senden.
     """
     def __init__(self):
-        self.webhook_url = Config.WEBHOOK_URL
+        self.apobj = apprise.Apprise()
+        urls = Config.NOTIFICATION_URLS
+        if urls:
+            for url in urls.split(","):
+                self.apobj.add(url.strip())
+            logger.info(f"Notifier mit {len(self.apobj)} Apprise-URLs initialisiert.")
 
-    def send(self, message):
+    def send(self, message, title="Lighthouse Update"):
         """
         Sendet eine einfache Nachricht.
         """
-        self._post(message)
+        if not self.apobj:
+            logger.debug("Keine Benachrichtigungs-URLs konfiguriert.")
+            return
+
+        try:
+            self.apobj.notify(body=message, title=title)
+        except Exception as e:
+            logger.error(f"Fehler beim Senden via Apprise: {e}")
 
     def send_summary(self, summary):
         """
-        Erstellt einen schoen formatierten Bericht aus einem ScanSummary-Objekt
-        und sendet diesen.
+        Erstellt einen zusammenfassenden Bericht und sendet diesen.
         """
         if summary.is_empty():
             return
@@ -32,32 +45,8 @@ class Notifier:
             lines.append(f"❌ Fehlgeschlagen: {', '.join(summary.failed)}")
         if summary.rolled_back:
             lines.append(f"⚠️ Rollbacks: {', '.join(summary.rolled_back)}")
-        
-        if len(lines) > 1:
-            self._post("\n".join(lines))
 
-    def _post(self, message):
-        """
-        Interne Hilfsmethode fuer den POST-Request.
-        """
-        if not self.webhook_url:
-            logger.debug("Keine Webhook-URL konfiguriert. Benachrichtigung wird uebersprungen.")
-            return
-
-        try:
-            payload = {"content": message}
-            response = requests.post(self.webhook_url, json=payload, timeout=10)
-            
-            if response.status_code == 400:
-                payload = {"text": message}
-                response = requests.post(self.webhook_url, json=payload, timeout=10)
-
-            if response.status_code < 300:
-                logger.info("Benachrichtigung erfolgreich gesendet.")
-            else:
-                logger.warning(f"Fehler beim Senden der Benachrichtigung: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Unerwarteter Fehler beim Senden: {e}")
+        self.send("\n".join(lines))
 
 class ScanSummary:
     """
