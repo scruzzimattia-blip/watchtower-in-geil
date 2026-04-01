@@ -104,3 +104,6 @@ docker run -d \
 ## Wichtige Hinweise
 - Im gesamten Projekt wird "ss" statt "ß" verwendet.
 - Achten Sie darauf, dass der Benutzer, der das Tool ausfuehrt, Zugriff auf `/var/run/docker.sock` hat.
+
+## Lizenz
+Dieses Projekt ist unter der MIT-Lizenz lizenziert. Weitere Informationen findest du in der Datei [LICENSE](LICENSE).
