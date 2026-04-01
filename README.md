@@ -60,8 +60,30 @@ docker compose up -d
 Das Tool kann ueber Umgebungsvariablen konfiguriert werden:
 - `POLL_INTERVAL`: Zeitabstand zwischen den Pruefungen in Sekunden (Standard: 300).
 - `CRON_SCHEDULE`: Cron-Ausdruck fuer geplante Pruefungen (z. B. `0 3 * * *`). Ueberschreibt `POLL_INTERVAL`.
-- `NOTIFICATION_URLS`: Kommagetrennte Liste von Apprise-URLs (z. B. `discord://webhook_id/webhook_token`).
+- `NOTIFICATION_URLS`: Kommagetrennte Liste von Apprise-URLs.
+  - Discord: `discord://webhook_id/webhook_token`
+  - Telegram: `tgram://bot_token/chat_id`
+  - Gotify: `gotify://hostname/token`
+  - Email: `mailto://user:pass@gmail.com`
 - `METRICS_PORT`: Port fuer den Prometheus-Server (Standard: 8080).
+
+### Beispiel: Vollstaendige docker-compose.yml
+```yaml
+services:
+  lighthouse:
+    image: ghcr.io/scruzzimattia-blip/lighthouse:latest
+    container_name: lighthouse
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - CRON_SCHEDULE=0 3 * * *
+      - NOTIFICATION_URLS=discord://123/abc,tgram://bot:tok/456
+      - METRICS_PORT=8080
+      - LOG_LEVEL=INFO
+    ports:
+      - "8080:8080" # Prometheus Endpunkt
+```
 - `INCLUDE_CONTAINERS` / `EXCLUDE_CONTAINERS`: Kommagetrennte Liste von Containernamen.
 - `DOCKER_HOST`: URL zum Docker-Socket/Host (z. B. `tcp://192.168.1.10:2375`).
 - `WATCH_LABEL`: Label, nach dem gesucht werden soll (Standard: `com.lighthouse.enable`).
@@ -104,3 +126,6 @@ docker run -d \
 ## Wichtige Hinweise
 - Im gesamten Projekt wird "ss" statt "ß" verwendet.
 - Achten Sie darauf, dass der Benutzer, der das Tool ausfuehrt, Zugriff auf `/var/run/docker.sock` hat.
+
+## Lizenz
+Dieses Projekt ist unter der MIT-Lizenz lizenziert. Weitere Informationen findest du in der Datei [LICENSE](LICENSE).
