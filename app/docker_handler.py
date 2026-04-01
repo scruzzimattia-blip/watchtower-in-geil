@@ -1,5 +1,6 @@
-import docker
+import aiodocker
 import logging
+import asyncio
 import time
 from app.config import Config
 from app.notifier import Notifier
@@ -8,111 +9,205 @@ logger = logging.getLogger(__name__)
 
 class DockerHandler:
     """
-    Diese Klasse uebernimmt die Kommunikation mit der Docker-API ueber den Socket.
+    Diese Klasse uebernimmt die asynchrone Kommunikation mit der Docker-API.
     """
     def __init__(self):
         try:
-            # Initialisiert den Docker-Client mit den Standardeinstellungen (z.B. docker.sock).
-            self.client = docker.from_env()
+            self.client = aiodocker.Docker()
             self.notifier = Notifier()
-            logger.info("Verbindung zur Docker-API erfolgreich hergestellt.")
+            logger.info("Verbindung zur Docker-API (aiodocker) erfolgreich hergestellt.")
         except Exception as e:
             logger.error(f"Fehler bei der Verbindung zur Docker-API: {e}")
             raise
 
-    def get_watchable_containers(self):
+    async def get_watchable_containers(self):
         """
         Gibt eine Liste aller Container zurueck, die ueberwacht werden sollen.
-        Falls WATCH_LABEL konfiguriert ist, werden nur Container mit diesem Label geprueft.
         """
-        all_containers = self.client.containers.list()
+        all_containers = await self.client.containers.list()
         watch_label = Config.WATCH_LABEL
-        
-        if not watch_label:
-            logger.info("Kein Label konfiguriert. Ueberwache alle laufenden Container.")
-            return all_containers
         
         watchable = []
         for container in all_containers:
-            # Pruefung, ob das Label gesetzt ist und den Wert 'true' hat.
-            labels = container.labels
-            if watch_label in labels and labels[watch_label].lower() == "true":
+            info = await container.show()
+            labels = info.get('Config', {}).get('Labels', {})
+            
+            if not watch_label:
+                watchable.append(container)
+            elif watch_label in labels and labels[watch_label].lower() == "true":
                 watchable.append(container)
         
         logger.info(f"Es wurden {len(watchable)} zu ueberwachende Container gefunden.")
         return watchable
 
-    def check_and_update(self, container):
+    async def check_and_update(self, container, summary=None):
         """
-        Prueft, ob ein neues Image fuer den Container verfuegbar ist.
-        Falls ja, wird der Container mit dem neuen Image neu gestartet.
+        Prueft auf Updates und fuehrt diese asynchron aus.
         """
-        image_name = container.image.tags[0] if container.image.tags else None
-        if not image_name:
-            logger.warning(f"Container {container.name} hat keine Tags. Ueberspringe.")
-            return
+        info = await container.show()
+        container_name = info['Name'].lstrip('/')
+        image_name = info['Config']['Image']
+        
+        # Versuche, den vollstaendigen Image-Namen inklusive Tag zu finden.
+        image_info = await self.client.images.inspect(image_name)
+        old_image_id = image_info['Id']
 
         try:
             logger.info(f"Pulle neustes Image fuer {image_name}...")
-            # Pulle das Image, um zu sehen, ob es ein Update gibt.
-            old_image_id = container.image.id
             
-            # Authentifizierungsdaten fuer private Registries vorbereiten.
-            auth_config = None
+            # Authentifizierung vorbereiten.
+            auth = None
             if Config.REGISTRY_USER and Config.REGISTRY_PASS:
-                auth_config = {
+                auth = {
                     'username': Config.REGISTRY_USER,
                     'password': Config.REGISTRY_PASS
                 }
 
-            new_image = self.client.images.pull(image_name, auth_config=auth_config)
-            
-            # Vergleiche die IDs des aktuellen Images und des neu gepullten Images.
-            if new_image.id != old_image_id:
-                msg = f"Update verfuegbar fuer {container.name} ({image_name})!"
+            await self.client.images.pull(image_name, auth=auth)
+            new_image_info = await self.client.images.inspect(image_name)
+            new_image_id = new_image_info['Id']
+
+            if new_image_id != old_image_id:
+                msg = f"Update verfuegbar fuer {container_name} ({image_name})!"
                 logger.info(msg)
                 
                 if Config.DRY_RUN:
-                    logger.info(f"[DRY RUN] Neustart von {container.name} wird uebersprungen.")
-                    self.notifier.send(f"🔍 {msg} (Simulation)")
-                else:
-                    # Starte den Container neu und pruefe auf Gesundheit.
-                    new_container = self.recreate_container(container, image_name)
-                    
-                    if new_container and self.wait_for_health(new_container):
-                        self.notifier.send(f"✅ {msg} (Erfolgreich aktualisiert)")
-                        # Altes Image entfernen, falls es keine Tags mehr hat (dangling).
-                        self.cleanup_old_image(old_image_id)
-                    elif new_container:
-                        # Rollback einleiten!
-                        rollback_msg = f"⚠️ {container.name} ist ungesund! Rollback wird eingeleitet..."
-                        logger.warning(rollback_msg)
-                        self.notifier.send(rollback_msg)
-                        # HINWEIS: Fuer ein echtes Rollback muessten wir die Attribute des alten Containers sichern.
-                        # Wir versuchen hier einfach, den ungesunden Container zu stoppen.
-                        # In v0.3.0 ist das Rollback als Konzept enthalten.
-                        new_container.stop(timeout=5)
-                        logger.error(f"Container {container.name} konnte nicht erfolgreich aktualisiert werden.")
+                    logger.info(f"[DRY RUN] Neustart von {container_name} wird uebersprungen.")
+                    if summary: summary.add_updated(f"{container_name} (simuliert)")
+                    return
+
+                # Starte den Container neu mit Rollback-Sicherung.
+                success = await self.recreate_with_rollback(container, image_name, summary)
+                if success:
+                    # Altes Image bereinigen.
+                    await self.cleanup_old_image(old_image_id)
             else:
-                logger.info(f"Container {container.name} ist bereits auf dem neusten Stand.")
+                logger.info(f"Container {container_name} ist bereits aktuell.")
                 
         except Exception as e:
-            error_msg = f"Fehler beim Update von {container.name}: {e}"
+            error_msg = f"Fehler beim Update von {container_name}: {e}"
             logger.error(error_msg)
+            if summary: summary.add_failed(container_name)
             if not Config.SKIP_PULL_ERROR:
                 raise
-            self.notifier.send(f"❌ {error_msg}")
 
-    def wait_for_health(self, container, timeout=60):
+    async def recreate_with_rollback(self, container, image_name, summary):
         """
-        Wartet darauf, dass ein Container 'healthy' wird.
-        Falls kein Healthcheck definiert ist, wird nur geprueft, ob er laeuft.
+        Implementiert den sicheren Rollback-Mechanismus.
+        1. Backup des alten Containers (Umbenennen).
+        2. Neuen Container starten.
+        3. Validieren.
+        4. Bei Fehler: Rollback zum Backup.
         """
+        info = await container.show()
+        original_name = info['Name'].lstrip('/')
+        backup_name = f"{original_name}_backup"
+
+        # 1. Backup erstellen (Umbenennen).
+        logger.info(f"Erstelle Backup: Benenne {original_name} in {backup_name} um...")
+        try:
+            await container.rename(backup_name)
+        except Exception as e:
+            logger.error(f"Konnte Backup fuer {original_name} nicht erstellen: {e}")
+            if summary: summary.add_failed(original_name)
+            return False
+
+        # 2. Neuen Container erstellen.
+        logger.info(f"Starte neuen Container {original_name}...")
+        new_container = None
+        try:
+            # Konfiguration vorbereiten (inkl. Compose-Labels).
+            config = self._prepare_config(info, image_name, original_name)
+            new_container = await self.client.containers.create(config=config, name=original_name)
+            
+            # Netzwerke verbinden.
+            await self._connect_networks(new_container, info)
+            
+            await new_container.start()
+            
+            # 3. Validieren (Healthcheck).
+            if await self.wait_for_health(new_container):
+                logger.info(f"Container {original_name} erfolgreich aktualisiert.")
+                if summary: summary.add_updated(original_name)
+                # Altes Backup loeschen.
+                backup_container = await self.client.containers.get(backup_name)
+                await backup_container.stop()
+                await backup_container.delete()
+                return True
+            else:
+                raise Exception("Healthcheck fehlgeschlagen.")
+
+        except Exception as e:
+            logger.warning(f"Update fehlgeschlagen für {original_name}: {e}. Starte Rollback...")
+            if summary: summary.add_rolled_back(original_name)
+            
+            # Rollback einleiten.
+            if new_container:
+                try:
+                    await new_container.stop()
+                    await new_container.delete()
+                except: pass
+
+            try:
+                backup_container = await self.client.containers.get(backup_name)
+                await backup_container.rename(original_name)
+                await backup_container.start()
+                logger.info(f"Rollback fuer {original_name} erfolgreich abgeschlossen.")
+            except Exception as re:
+                logger.critical(f"KRITISCH: Rollback fuer {original_name} fehlgeschlagen: {re}")
+            
+            return False
+
+    def _prepare_config(self, info, image_name, name):
+        """Extrahiert und bereitet die Konfiguration fuer den neuen Container vor."""
+        old_config = info['Config']
+        host_config = info['HostConfig']
+        
+        # Basis-Konfiguration.
+        new_config = {
+            'Image': image_name,
+            'Labels': old_config.get('Labels', {}),
+            'Env': old_config.get('Env', []),
+            'Entrypoint': old_config.get('Entrypoint'),
+            'Cmd': old_config.get('Cmd'),
+            'User': old_config.get('User'),
+            'WorkingDir': old_config.get('WorkingDir'),
+            'HostConfig': {
+                'PortBindings': host_config.get('PortBindings', {}),
+                'Binds': host_config.get('Binds', []),
+                'RestartPolicy': host_config.get('RestartPolicy', {"Name": "always"}),
+                'LogConfig': host_config.get('LogConfig', {}),
+                'ExtraHosts': host_config.get('ExtraHosts', []),
+            }
+        }
+        return new_config
+
+    async def _connect_networks(self, container, old_info):
+        """Verbindet den neuen Container mit den Netzwerken des alten."""
+        networks = old_info.get('NetworkSettings', {}).get('Networks', {})
+        for net_name, net_config in networks.items():
+            try:
+                # 'default' Netzwerk wird oft automatisch verbunden, wir muessen vorsichtig sein.
+                if net_name == 'bridge': continue 
+                
+                network = await self.client.networks.get(net_name)
+                await network.connect({
+                    'Container': container.id,
+                    'EndpointConfig': {
+                        'Aliases': net_config.get('Aliases', [])
+                    }
+                })
+            except Exception as e:
+                logger.debug(f"Netzwerk-Verbindung zu {net_name} fehlgeschlagen (evtl. bereits verbunden): {e}")
+
+    async def wait_for_health(self, container, timeout=60):
+        """Wartet darauf, dass ein Container 'healthy' wird."""
         start_time = time.time()
         while time.time() - start_time < timeout:
-            container.reload()
-            status = container.status
-            health = container.attrs.get('State', {}).get('Health', {}).get('Status')
+            info = await container.show()
+            state = info.get('State', {})
+            status = state.get('Status')
+            health = state.get('Health', {}).get('Status')
             
             if status != 'running':
                 return False
@@ -123,84 +218,30 @@ class DockerHandler:
             if health == 'unhealthy':
                 return False
                 
-            time.sleep(2)
+            await asyncio.sleep(2)
         return False
 
-    def cleanup_old_image(self, image_id):
-        """
-        Entfernt ein altes Image, falls es nicht mehr verwendet wird (dangling).
-        """
+    async def cleanup_old_image(self, image_id):
+        """Entfernt ein altes Image."""
         try:
-            self.client.images.remove(image=image_id, noprune=False)
-            logger.info(f"Altes Image {image_id[:12]} wurde erfolgreich bereinigt.")
-        except Exception:
-            # Ignorieren, falls das Image noch in Benutzung ist.
+            await self.client.images.delete(image_id)
+            logger.info(f"Altes Image {image_id[:12]} bereinigt.")
+        except:
             pass
 
-    def recreate_container(self, container, image_name):
-        """
-        Stoppt, entfernt und startet den Container neu mit dem neuen Image.
-        Versucht so viele Konfigurationsparameter wie moeglich zu uebernehmen.
-        """
-        # Extrahiere Konfiguration des alten Containers.
-        attrs = container.attrs
-        config = attrs['Config']
-        host_config = attrs['HostConfig']
-        
-        # Vorbereitung der Parameter fuer den neuen Container.
-        run_kwargs = {
-            'image': image_name,
-            'name': container.name,
-            'detach': True,
-            'environment': config.get('Env', []),
-            'ports': host_config.get('PortBindings', {}),
-            'volumes': host_config.get('Binds', []),
-            'restart_policy': host_config.get('RestartPolicy', {"Name": "always"}),
-            'labels': config.get('Labels', {}),
-            'entrypoint': config.get('Entrypoint'),
-            'command': config.get('Cmd'),
-            'user': config.get('User'),
-            'working_dir': config.get('WorkingDir'),
-            'hostname': config.get('Hostname'),
-            'domainname': config.get('Domainname'),
-            'mac_address': config.get('MacAddress'),
-        }
+    async def close(self):
+        """Schliesst den Client."""
+        await self.client.close()
 
-        # Netzwerke extrahieren.
-        networks = attrs.get('NetworkSettings', {}).get('Networks', {})
-        network_names = list(networks.keys())
-        
-        # Stoppen und Entfernen des alten Containers.
-        logger.info(f"Stoppe Container {container.name}...")
+    async def listen_events(self):
+        """Horcht auf Docker-Events, um sofort auf Container-Starts zu reagieren."""
+        logger.info("Starte Docker Event-Listener...")
         try:
-            container.stop(timeout=10)
-            logger.info(f"Entferne Container {container.name}...")
-            container.remove()
+            async for event in self.client.events():
+                if event['Type'] == 'container' and event['Action'] == 'start':
+                    container_id = event['Actor']['Attributes'].get('name') or event['id']
+                    logger.info(f"Event: Container {container_id} gestartet. Pruefe auf Updates...")
+                    # Hier koennte man eine gezielte Pruefung triggern.
+                    # Fuer v0.3.0 loggen wir es erst einmal nur.
         except Exception as e:
-            logger.error(f"Fehler beim Entfernen des Containers {container.name}: {e}")
-            return None
-
-        # Neu erstellen.
-        try:
-            if network_names:
-                run_kwargs['network'] = network_names[0]
-            
-            new_container = self.client.containers.run(**run_kwargs)
-            
-            if len(network_names) > 1:
-                for net_name in network_names[1:]:
-                    network = self.client.networks.get(net_name)
-                    network.connect(new_container)
-            
-            logger.info(f"Container {new_container.name} erfolgreich mit neuem Image gestartet.")
-            return new_container
-        except Exception as e:
-            logger.error(f"Kritischer Fehler beim Neustart von {container.name}: {e}")
-            return None
-
-    def close(self):
-        """
-        Schliesst die Verbindung zum Docker-Client.
-        """
-        self.client.close()
-        logger.info("Docker-Client-Verbindung wurde ordnungsgemaess geschlossen.")
+            logger.error(f"Fehler im Event-Listener: {e}")
