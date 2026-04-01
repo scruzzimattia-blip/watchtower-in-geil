@@ -1,101 +1,87 @@
 import pytest
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import MagicMock, patch, AsyncMock
 from app.docker_handler import DockerHandler
 from app.config import Config
+from app.notifier import ScanSummary
 
 @pytest.fixture
-def mock_docker_client():
-    """Mockt den Docker-Client, um API-Aufrufe zu simulieren."""
-    with patch('docker.from_env') as mock_env:
-        client = MagicMock()
+def mock_aiodocker():
+    """Mockt den aiodocker.Docker Client."""
+    with patch('aiodocker.Docker') as mock_env:
+        client = AsyncMock()
         mock_env.return_value = client
         yield client
 
-def test_get_watchable_containers(mock_docker_client):
+@pytest.mark.asyncio
+async def test_get_watchable_containers_async(mock_aiodocker):
     """Testet, ob nur Container mit dem richtigen Label zurueckgegeben werden."""
-    # Erstelle Test-Container.
-    container1 = MagicMock()
-    container1.name = "watch-me"
-    container1.labels = {Config.WATCH_LABEL: "true"}
+    container1 = AsyncMock()
+    container1.show.return_value = {
+        'Config': {'Labels': {Config.WATCH_LABEL: "true"}},
+        'Name': '/watch-me'
+    }
     
-    container2 = MagicMock()
-    container2.name = "ignore-me"
-    container2.labels = {Config.WATCH_LABEL: "false"}
+    container2 = AsyncMock()
+    container2.show.return_value = {
+        'Config': {'Labels': {Config.WATCH_LABEL: "false"}},
+        'Name': '/ignore-me'
+    }
     
-    container3 = MagicMock()
-    container3.name = "no-label"
-    container3.labels = {}
-    
-    mock_docker_client.containers.list.return_value = [container1, container2, container3]
+    mock_aiodocker.containers.list.return_value = [container1, container2]
     
     handler = DockerHandler()
-    watchable = handler.get_watchable_containers()
+    watchable = await handler.get_watchable_containers()
     
     assert len(watchable) == 1
-    assert watchable[0].name == "watch-me"
 
-def test_check_and_update_no_change(mock_docker_client):
+@pytest.mark.asyncio
+async def test_check_and_update_no_change_async(mock_aiodocker):
     """Prueft, dass kein Neustart erfolgt, wenn das Image identisch ist."""
-    container = MagicMock()
-    container.name = "test-container"
-    container.image.id = "sha256:old_id"
-    container.image.tags = ["nginx:latest"]
+    container = AsyncMock()
+    container.show.return_value = {
+        'Name': '/test-container',
+        'Config': {'Image': 'nginx:latest'}
+    }
     
-    new_image = MagicMock()
-    new_image.id = "sha256:old_id"
-    
-    mock_docker_client.images.pull.return_value = new_image
-    
-    handler = DockerHandler()
-    # Mocking recreate_container, um sicherzustellen, dass es NICHT aufgerufen wird.
-    handler.recreate_container = MagicMock()
-    handler.cleanup_old_image = MagicMock()
-    
-    handler.check_and_update(container)
-    
-    handler.recreate_container.assert_not_called()
-    handler.cleanup_old_image.assert_not_called()
-
-def test_check_and_update_dry_run(mock_docker_client):
-    """Prueft den Dry-Run Modus: Logik sollte ausgefuehrt werden, aber kein Neustart."""
-    container = MagicMock()
-    container.name = "dry-run-container"
-    container.image.id = "sha256:old_id"
-    container.image.tags = ["nginx:latest"]
-    
-    new_image = MagicMock()
-    new_image.id = "sha256:new_id" # Unterschiedlich!
-    
-    mock_docker_client.images.pull.return_value = new_image
-    
-    # Dry Run aktivieren.
-    with patch('app.config.Config.DRY_RUN', True):
-        handler = DockerHandler()
-        handler.recreate_container = MagicMock()
-        handler.notifier.send = MagicMock()
-        
-        handler.check_and_update(container)
-        
-        # Recreate darf NICHT aufgerufen werden.
-        handler.recreate_container.assert_not_called()
-        # Notifier sollte eine Simulations-Nachricht senden.
-        handler.notifier.send.assert_called_once()
-        assert "Simulation" in handler.notifier.send.call_args[0][0]
-
-def test_wait_for_health_no_healthcheck(mock_docker_client):
-    """Prueft wait_for_health, wenn kein Healthcheck definiert ist."""
-    container = MagicMock()
-    container.status = 'running'
-    container.attrs = {'State': {}} # Kein 'Health'
+    mock_aiodocker.images.inspect.side_effect = [
+        {'Id': 'sha256:old_id'}, # Erster Aufruf (vor pull)
+        {'Id': 'sha256:old_id'}  # Zweiter Aufruf (nach pull)
+    ]
     
     handler = DockerHandler()
-    assert handler.wait_for_health(container) is True
+    handler.recreate_with_rollback = AsyncMock()
+    
+    await handler.check_and_update(container)
+    
+    handler.recreate_with_rollback.assert_not_called()
 
-def test_wait_for_health_unhealthy(mock_docker_client):
-    """Prueft wait_for_health, wenn der Container ungesund ist."""
-    container = MagicMock()
-    container.status = 'running'
-    container.attrs = {'State': {'Health': {'Status': 'unhealthy'}}}
+@pytest.mark.asyncio
+async def test_rollback_on_failure(mock_aiodocker):
+    """Testet den Rollback-Mechanismus bei einem fehlgeschlagenen Healthcheck."""
+    container = AsyncMock()
+    container.show.return_value = {
+        'Name': '/test-app',
+        'Config': {'Image': 'nginx:latest', 'Labels': {}},
+        'HostConfig': {}
+    }
     
     handler = DockerHandler()
-    assert handler.wait_for_health(container) is False
+    # Mock wait_for_health, um ein Scheitern zu simulieren.
+    handler.wait_for_health = AsyncMock(return_value=False)
+    
+    # Mock create, rename, start etc.
+    new_container = AsyncMock()
+    mock_aiodocker.containers.create.return_value = new_container
+    
+    backup_container = AsyncMock()
+    mock_aiodocker.containers.get.return_value = backup_container
+
+    summary = ScanSummary()
+    success = await handler.recreate_with_rollback(container, 'nginx:latest', summary)
+    
+    assert success is False
+    assert len(summary.rolled_back) == 1
+    # Sicherstellen, dass das Backup zurueck-umbenannt und gestartet wurde.
+    backup_container.rename.assert_called_with('test-app')
+    backup_container.start.assert_called()

@@ -1,12 +1,14 @@
-import time
+import asyncio
 import logging
 import sys
 import signal
-from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from croniter import croniter
 from app.config import Config
 from app.docker_handler import DockerHandler
+from app.notifier import ScanSummary
 
-# Logger einrichten mit "ss" statt "ß".
+# Logger einrichten.
 logging.basicConfig(
     level=Config.LOG_LEVEL,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -18,70 +20,77 @@ logger = logging.getLogger(__name__)
 RUNNING = True
 
 def signal_handler(sig, frame):
-    """
-    Handler fuer Signale wie SIGTERM oder SIGINT.
-    Setzt RUNNING auf False, um die Schleife sauber zu beenden.
-    """
     global RUNNING
     logger.info(f"Signal {sig} empfangen. Beende Anwendung sauber...")
     RUNNING = False
 
 def get_version():
-    """Liest die Version aus der VERSION-Datei im Hauptverzeichnis."""
     try:
         with open("VERSION", "r") as f:
             return f.read().strip()
     except FileNotFoundError:
         return "unbekannt"
 
-def main():
-    """
-    Der Haupteinstiegspunkt von Lighthouse.
-    Hier wird die Endlosschleife gestartet, die regelmaessig
-    nach Updates sucht und diese ausfuehrt.
-    """
-    # Signal-Handler registrieren.
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+async def get_next_run_delay():
+    """Berechnet die Verzögerung bis zum nächsten Durchlauf (Cron oder Interval)."""
+    if Config.CRON_SCHEDULE:
+        now = datetime.now()
+        cron = croniter(Config.CRON_SCHEDULE, now)
+        next_run = cron.get_next(datetime)
+        delay = (next_run - now).total_seconds()
+        logger.info(f"Naechster Cron-Durchlauf geplant fuer: {next_run} (in {int(delay)}s)")
+        return delay
+    return Config.POLL_INTERVAL
+
+async def main():
+    # Signal-Handler (async-kompatibel).
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
 
     version = get_version()
-    logger.info(f"Lighthouse (v{version}) gestartet. Druecke Strg+C zum Schliessen.")
-    logger.info(f"Abfrageintervall: {Config.POLL_INTERVAL} Sekunden.")
+    logger.info(f"Lighthouse (v{version}) gestartet.")
     
-    # Docker-Handler initialisieren.
-    try:
-        handler = DockerHandler()
-    except Exception as e:
-        logger.error(f"Kritischer Fehler beim Starten des Docker-Handlers: {e}")
-        sys.exit(1)
+    handler = DockerHandler()
+    
+    # Event-Listener im Hintergrund starten.
+    event_task = asyncio.create_task(handler.listen_events())
 
     try:
         while RUNNING:
-            logger.info("Starte Pruefung auf neue Image-Versionen...")
+            logger.info("Starte Scan-Durchlauf...")
+            summary = ScanSummary()
             
-            # Liste der zu ueberwachenden Container abrufen.
-            containers = handler.get_watchable_containers()
+            containers = await handler.get_watchable_containers()
             
-            # Parallele Ausfuehrung der Pruefungen mit einem ThreadPoolExecutor.
-            with ThreadPoolExecutor(max_workers=Config.MAX_WORKERS) as executor:
-                for container in containers:
-                    if not RUNNING:
-                        break
-                    logger.info(f"Pruefung fuer {container.name} eingereiht.")
-                    executor.submit(handler.check_and_update, container)
+            # Parallele Ausfuehrung der Pruefungen.
+            tasks = [handler.check_and_update(c, summary) for c in containers]
+            await asyncio.gather(*tasks)
+            
+            # Zusammenfassung senden.
+            handler.notifier.send_summary(summary)
             
             if RUNNING:
-                logger.info(f"Warten auf den naechsten Durchlauf in {Config.POLL_INTERVAL}s.")
-                # Wir schlafen in kleinen Schritten (1s), um schneller auf Signale reagieren zu koennen.
-                for _ in range(Config.POLL_INTERVAL):
+                delay = await get_next_run_delay()
+                # Schlafen in kleinen Schritten, um auf RUNNING=False zu reagieren.
+                for _ in range(int(delay)):
                     if not RUNNING:
                         break
-                    time.sleep(1)
+                    await asyncio.sleep(1)
     except Exception as e:
         logger.error(f"Ein unerwarteter Fehler ist aufgetreten: {e}")
     finally:
-        handler.close()
+        event_task.cancel()
+        await handler.close()
         logger.info("Anwendung ordnungsgemaess beendet.")
 
+async def shutdown():
+    global RUNNING
+    RUNNING = False
+    logger.info("Shutdown eingeleitet...")
+
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

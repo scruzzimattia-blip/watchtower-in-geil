@@ -31,6 +31,9 @@ class Config:
     # Maximale Anzahl an parallelen Worker-Threads (Standard: 4).
     MAX_WORKERS = int(os.getenv("MAX_WORKERS", 4))
     
+    # Cron-Ausdruck fuer die Planung (optional, z.B. "0 3 * * *").
+    CRON_SCHEDULE = os.getenv("CRON_SCHEDULE")
+    
     # Authentifizierungsdaten fuer private Registries (optional).
     REGISTRY_USER = os.getenv("REGISTRY_USER")
     REGISTRY_PASS = os.getenv("REGISTRY_PASS")

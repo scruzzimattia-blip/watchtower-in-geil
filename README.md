@@ -3,11 +3,12 @@
 Ein schlanker Docker-Container-Update-Dienst in Python, der laufende Instanzen automatisch auf neue Image-Versionen prueft und diese aktualisiert.
 
 ## Funktionen
-- Nutzt die Docker-Socket-Schnittstelle.
-- Parallele Pruefung von Containern fuer maximale Geschwindigkeit.
-- Automatische Erkennung via Labels (`com.lighthouse.enable`).
-- Healthcheck-Validierung nach jedem Update.
-- Benachrichtigungen via Discord/Slack Webhooks.
+- Nutzt die asynchrone Docker-API (aiodocker) fuer hohe Performance.
+- Parallele Pruefung von Containern via AsyncIO.
+- Automatischer Rollback: Falls ein Update fehlschlaegt (Healthcheck), wird die vorherige Version automatisch wiederhergestellt.
+- Docker Compose Integration: Behaelt Labels, Netzwerke und Konfigurationen bei.
+- Flexibles Scheduling: Unterstuetzt sowohl Intervalle als auch Cron-Ausdruecke.
+- Zusammenfassende Benachrichtigungen via Discord/Slack Webhooks.
 - Dry-Run Modus fuer Simulationen.
 - Behaelt wichtige Konfigurationen wie Umgebungsvariablen, Ports und Volumes bei.
 - Vollstaendige CI/CD-Pipeline via GitHub Actions (GHCR).
@@ -55,10 +56,12 @@ docker compose up -d
 ### Konfiguration
 Das Tool kann ueber Umgebungsvariablen konfiguriert werden:
 - `POLL_INTERVAL`: Zeitabstand zwischen den Pruefungen in Sekunden (Standard: 300).
+- `CRON_SCHEDULE`: Cron-Ausdruck fuer geplante Pruefungen (z. B. `0 3 * * *` fuer 3 Uhr morgens). Ueberschreibt `POLL_INTERVAL`.
 - `WATCH_LABEL`: Label, nach dem gesucht werden soll (Standard: `com.lighthouse.enable`).
 - `WEBHOOK_URL`: URL fuer Benachrichtigungen (Discord/Slack).
 - `DRY_RUN`: Falls `true`, werden nur Updates simuliert.
 - `MAX_WORKERS`: Anzahl paralleler Pruefungen (Standard: 4).
+- `SKIP_PULL_ERROR`: Falls `true`, werden Fehler beim Pull eines Images ignoriert und der Scan fortgesetzt.
 
 ### Container fuer die Ueberwachung markieren
 Damit ein Container aktualisiert wird, muss er mit dem entsprechenden Label gestartet werden:
