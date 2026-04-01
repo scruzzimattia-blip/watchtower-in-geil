@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 RUNNING = True
 
 def signal_handler(sig, frame):
-    global RUNNING
+    global RUNNING  # noqa: PLW0603
     logger.info(f"Signal {sig} empfangen. Beende Anwendung sauber...")
     RUNNING = False
 
@@ -92,7 +92,7 @@ async def main():
         logger.info("Anwendung ordnungsgemaess beendet.")
 
 async def shutdown():
-    global RUNNING
+    global RUNNING  # noqa: PLW0603
     RUNNING = False
     logger.info("Shutdown eingeleitet...")
 

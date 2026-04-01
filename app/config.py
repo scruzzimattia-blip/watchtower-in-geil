@@ -41,8 +41,16 @@ class Config:
     METRICS_PORT = int(os.getenv("METRICS_PORT", "8080"))
 
     # Filter fuer Container Namen/IDs (kommagetrennt).
-    INCLUDE_CONTAINERS = os.getenv("INCLUDE_CONTAINERS", "").split(",") if os.getenv("INCLUDE_CONTAINERS") else []
-    EXCLUDE_CONTAINERS = os.getenv("EXCLUDE_CONTAINERS", "").split(",") if os.getenv("EXCLUDE_CONTAINERS") else []
+    INCLUDE_CONTAINERS = (
+        os.getenv("INCLUDE_CONTAINERS", "").split(",")
+        if os.getenv("INCLUDE_CONTAINERS")
+        else []
+    )
+    EXCLUDE_CONTAINERS = (
+        os.getenv("EXCLUDE_CONTAINERS", "").split(",")
+        if os.getenv("EXCLUDE_CONTAINERS")
+        else []
+    )
 
     # Remote Docker Konfiguration.
     DOCKER_HOST = os.getenv("DOCKER_HOST")

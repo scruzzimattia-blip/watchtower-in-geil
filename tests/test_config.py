@@ -3,7 +3,8 @@ from app.config import Config
 
 def test_default_config():
     """Prueft die Standardwerte der Konfiguration."""
-    assert Config.POLL_INTERVAL == 300
+    default_poll_interval = 300
+    assert Config.POLL_INTERVAL == default_poll_interval
     assert Config.WATCH_LABEL == "com.lighthouse.enable"
     assert Config.LOG_LEVEL == "INFO"
 

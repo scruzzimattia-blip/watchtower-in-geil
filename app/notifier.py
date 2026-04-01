@@ -1,5 +1,7 @@
 import logging
+
 import apprise
+
 from app.config import Config
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,7 @@ class Notifier:
             lines.append(f"❌ Fehlgeschlagen: {', '.join(summary.failed)}")
         if summary.rolled_back:
             lines.append(f"⚠️ Rollbacks: {', '.join(summary.rolled_back)}")
-        
+
         self.send("\n".join(lines))
 
 class ScanSummary:
