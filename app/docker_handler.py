@@ -194,34 +194,28 @@ class DockerHandler:
         Implementiert den sicheren Rollback-Mechanismus und Lifecycle Hooks.
         """
         info = await container.show()
-        original_name = info["Name"].lstrip("/")
-        backup_name = f"{original_name}_backup"
+        name = info["Name"].lstrip("/")
+        backup_name = f"{name}_backup"
 
         await self._run_hook(container, "com.lighthouse.pre-update")
 
-        logger.info(f"Erstelle Backup: Benenne {original_name} in {backup_name} um...")
+        logger.info(f"Erstelle Backup: Benenne {name} in {backup_name} um...")
         try:
             await container.rename(backup_name)
         except Exception as e:
-            logger.error(f"Konnte Backup fuer {original_name} nicht erstellen: {e}")
+            logger.error(f"Konnte Backup fuer {name} nicht erstellen: {e}")
             if summary:
-                summary.add_failed(original_name)
+                summary.add_failed(name)
             return False
 
         try:
-            new_container = await self._create_and_start_container(
-                info, image_name, original_name
-            )
+            new_container = await self._create_and_start_container(info, image_name, name)
             if await self.wait_for_health(new_container):
-                await self._finalize_success(
-                    new_container, original_name, backup_name, summary
-                )
+                await self._finalize_success(new_container, backup_name, summary)
                 return True
             raise RuntimeError("Healthcheck fehlgeschlagen.")
         except Exception as e:
-            await self._handle_rollback(
-                None, original_name, backup_name, e, summary
-            )  # new_container handled inside
+            await self._handle_rollback(None, name, e, summary)
             return False
 
     async def _create_and_start_container(self, old_info, image_name, name):
@@ -233,8 +227,10 @@ class DockerHandler:
         await new_container.start()
         return new_container
 
-    async def _finalize_success(self, container, name, backup_name, summary):
+    async def _finalize_success(self, container, backup_name, summary):
         """Schliesst ein erfolgreiches Update ab."""
+        info = await container.show()
+        name = info["Name"].lstrip("/")
         logger.info(f"Container {name} erfolgreich aktualisiert.")
         if summary:
             summary.add_updated(name)
@@ -248,12 +244,14 @@ class DockerHandler:
         except Exception:
             pass
 
-    async def _handle_rollback(self, new_container, name, backup_name, error, summary):
+    async def _handle_rollback(self, new_container, name, error, summary):
         """Fuehrt ein Rollback im Fehlerfall durch."""
         logger.warning(f"Update fehlgeschlagen für {name}: {error}. Starte Rollback...")
         metrics.ROLLBACKS_TOTAL.inc()
         if summary:
             summary.add_rolled_back(name)
+
+        backup_name = f"{name}_backup"
 
         if new_container:
             try:
@@ -262,7 +260,6 @@ class DockerHandler:
             except Exception:
                 pass
         else:
-            # Falls create_and_start fehlschlug, muessen wir den Container evtl. via Name suchen
             try:
                 c = await self.client.containers.get(name)
                 await c.stop()
