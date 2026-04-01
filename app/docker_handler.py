@@ -353,7 +353,11 @@ class DockerHandler:
         """Horcht auf Docker-Events."""
         logger.info("Starte Docker Event-Listener...")
         try:
-            async for event in self.client.events():
+            subscriber = self.client.events.subscribe()
+            while True:
+                event = await subscriber.get()
+                if event is None:
+                    break
                 if event["Type"] == "container" and event["Action"] == "start":
                     container_id = event["Actor"]["Attributes"].get("name") or event["id"]
                     logger.info(
